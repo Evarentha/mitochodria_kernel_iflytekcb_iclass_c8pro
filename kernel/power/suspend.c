@@ -556,7 +556,6 @@ static void suspend_finish(void)
 static int enter_state(suspend_state_t state)
 {
 	int error;
-	int spurious_retries = 0;
 
 	trace_suspend_resume(TPS("suspend_enter"), state, true);
 	if (state == PM_SUSPEND_TO_IDLE) {
@@ -600,10 +599,6 @@ static int enter_state(suspend_state_t state)
 		if (error || !sprd_sc27xx_consume_spurious_wakeup())
 			break;
 
-		if (spurious_retries >= 1)
-			break;
-
-		spurious_retries++;
 		pm_suspend_clear_flags();
 	} while (true);
 	pm_restore_gfp_mask();
