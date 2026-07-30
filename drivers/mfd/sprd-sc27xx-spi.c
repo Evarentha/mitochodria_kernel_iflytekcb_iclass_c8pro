@@ -15,9 +15,11 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mfd/core.h>
+#include <linux/mfd/sprd-sc27xx.h>
 #include <linux/of_device.h>
 #include <linux/regmap.h>
 #include <linux/spi/spi.h>
+#include <linux/suspend.h>
 
 #define SPRD_PMIC_INT_MASK_STATUS	0x0
 #define SPRD_PMIC_INT_RAW_STATUS	0x4
@@ -34,7 +36,6 @@
 
 struct sprd_pmic {
 	struct regmap *regmap;
-	struct device *dev;
 	struct regmap_irq *irqs;
 	struct regmap_irq_chip irq_chip;
 	struct regmap_irq_chip_data *irq_data;
@@ -214,7 +215,6 @@ static int sprd_pmic_probe(struct spi_device *spi)
 	}
 
 	spi_set_drvdata(spi, ddata);
-	ddata->dev = &spi->dev;
 	ddata->irq = spi->irq;
 
 	ddata->irq_chip.name = dev_name(&spi->dev);
@@ -258,11 +258,41 @@ static int sprd_pmic_probe(struct spi_device *spi)
 	return 0;
 }
 
+#ifdef CONFIG_MITOCHODRIA_SC27XX_SPURIOUS_WAKE_RETRY
+static bool sprd_pmic_spurious_wakeup;
+
+static bool sprd_pmic_irq_status_empty(struct sprd_pmic *ddata)
+{
+	u32 mask_status, raw_status;
+	int ret;
+
+	ret = regmap_read(ddata->regmap, ddata->irq_chip.status_base,
+			  &mask_status);
+	ret |= regmap_read(ddata->regmap,
+			   ddata->irq_chip.status_base + SPRD_PMIC_INT_RAW_STATUS,
+			   &raw_status);
+
+	return !ret && !mask_status && !raw_status;
+}
+
+bool sprd_sc27xx_consume_spurious_wakeup(void)
+{
+	bool spurious = READ_ONCE(sprd_pmic_spurious_wakeup);
+
+	WRITE_ONCE(sprd_pmic_spurious_wakeup, false);
+	return spurious;
+}
+EXPORT_SYMBOL_GPL(sprd_sc27xx_consume_spurious_wakeup);
+#endif
+
 #ifdef CONFIG_PM_SLEEP
 static int sprd_pmic_suspend(struct device *dev)
 {
 	struct sprd_pmic *ddata = dev_get_drvdata(dev);
 
+#ifdef CONFIG_MITOCHODRIA_SC27XX_SPURIOUS_WAKE_RETRY
+	WRITE_ONCE(sprd_pmic_spurious_wakeup, false);
+#endif
 	if (device_may_wakeup(dev))
 		enable_irq_wake(ddata->irq);
 
@@ -273,6 +303,10 @@ static int sprd_pmic_resume(struct device *dev)
 {
 	struct sprd_pmic *ddata = dev_get_drvdata(dev);
 
+#ifdef CONFIG_MITOCHODRIA_SC27XX_SPURIOUS_WAKE_RETRY
+	if (pm_wakeup_irq == ddata->irq && sprd_pmic_irq_status_empty(ddata))
+		WRITE_ONCE(sprd_pmic_spurious_wakeup, true);
+#endif
 	if (device_may_wakeup(dev))
 		disable_irq_wake(ddata->irq);
 

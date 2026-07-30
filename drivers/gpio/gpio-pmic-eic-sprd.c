@@ -64,48 +64,6 @@ struct sprd_pmic_eic {
 	int irq;
 };
 
-#ifdef CONFIG_MITOCHODRIA_SUSPEND_DIAG
-static void sprd_pmic_eic_diag_dump(struct sprd_pmic_eic *pmic_eic,
-				    const char *phase)
-{
-	u32 data, dmsk, iev, ie, ris, mis, trig, ctrl0;
-	int ret = 0;
-
-	ret |= regmap_read(pmic_eic->map, pmic_eic->offset + SPRD_PMIC_EIC_DATA,
-			   &data);
-	ret |= regmap_read(pmic_eic->map, pmic_eic->offset + SPRD_PMIC_EIC_DMSK,
-			   &dmsk);
-	ret |= regmap_read(pmic_eic->map, pmic_eic->offset + SPRD_PMIC_EIC_IEV,
-			   &iev);
-	ret |= regmap_read(pmic_eic->map, pmic_eic->offset + SPRD_PMIC_EIC_IE,
-			   &ie);
-	ret |= regmap_read(pmic_eic->map, pmic_eic->offset + SPRD_PMIC_EIC_RIS,
-			   &ris);
-	ret |= regmap_read(pmic_eic->map, pmic_eic->offset + SPRD_PMIC_EIC_MIS,
-			   &mis);
-	ret |= regmap_read(pmic_eic->map, pmic_eic->offset + SPRD_PMIC_EIC_TRIG,
-			   &trig);
-	ret |= regmap_read(pmic_eic->map, pmic_eic->offset + SPRD_PMIC_EIC_CTRL0,
-			   &ctrl0);
-
-	if (ret) {
-		dev_err(pmic_eic->chip.parent,
-			"mitochodria-suspend: EIC %s read failed: %d\n",
-			phase, ret);
-		return;
-	}
-
-	dev_err(pmic_eic->chip.parent,
-		"mitochodria-suspend: EIC %s data=%04x dmsk=%04x iev=%04x ie=%04x ris=%04x mis=%04x trig=%04x ctrl0=%08x\n",
-		phase, data, dmsk, iev, ie, ris, mis, trig, ctrl0);
-}
-#else
-static inline void sprd_pmic_eic_diag_dump(struct sprd_pmic_eic *pmic_eic,
-					    const char *phase)
-{
-}
-#endif
-
 static void sprd_pmic_eic_update(struct gpio_chip *chip, unsigned int offset,
 				 u16 reg, unsigned int val)
 {
@@ -316,7 +274,6 @@ static irqreturn_t sprd_pmic_eic_irq_handler(int irq, void *data)
 		return IRQ_RETVAL(ret);
 
 	status = val & SPRD_PMIC_EIC_DATA_MASK;
-	sprd_pmic_eic_diag_dump(pmic_eic, "irq-before-clear");
 
 	for_each_set_bit(n, &status, chip->ngpio) {
 		/* Clear the interrupt */
@@ -332,33 +289,10 @@ static irqreturn_t sprd_pmic_eic_irq_handler(int irq, void *data)
 		sprd_pmic_eic_toggle_trigger(chip, girq, n);
 	}
 
-	sprd_pmic_eic_diag_dump(pmic_eic, "irq-after-toggle");
 	return IRQ_HANDLED;
 }
 
-#ifdef CONFIG_PM_SLEEP
-static int sprd_pmic_eic_suspend(struct device *dev)
-{
-	struct sprd_pmic_eic *pmic_eic = dev_get_drvdata(dev);
-
-	sprd_pmic_eic_diag_dump(pmic_eic, "suspend");
-	return 0;
-}
-
-static int sprd_pmic_eic_resume(struct device *dev)
-{
-	struct sprd_pmic_eic *pmic_eic = dev_get_drvdata(dev);
-
-	sprd_pmic_eic_diag_dump(pmic_eic, "resume");
-	return 0;
-}
-
-static SIMPLE_DEV_PM_OPS(sprd_pmic_eic_pm_ops, sprd_pmic_eic_suspend,
-			 sprd_pmic_eic_resume);
-#define SPRD_PMIC_EIC_PM_OPS (&sprd_pmic_eic_pm_ops)
-#else
 #define SPRD_PMIC_EIC_PM_OPS NULL
-#endif
 
 static int sprd_pmic_eic_probe(struct platform_device *pdev)
 {

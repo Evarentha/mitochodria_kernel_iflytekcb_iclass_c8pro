@@ -457,12 +457,7 @@ static int psci_system_suspend(unsigned long unused)
 
 static int psci_system_suspend_enter(suspend_state_t state)
 {
-	int ret = cpu_suspend(0, psci_system_suspend);
-
-#ifdef CONFIG_MITOCHODRIA_SUSPEND_DIAG
-	pr_err("mitochodria-suspend: PSCI SYSTEM_SUSPEND returned %d\n", ret);
-#endif
-	return ret;
+	return cpu_suspend(0, psci_system_suspend);
 }
 
 static const struct platform_suspend_ops psci_suspend_ops = {

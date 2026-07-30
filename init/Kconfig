@@ -1891,13 +1891,13 @@ config MITOCHODRIA_MODULE_SKIP_VERMAGIC_VERSION
 	  module-unload, architecture, and modversions attributes. This allows
 	  factory modules to be reused with a branded kernel release string.
 
-config MITOCHODRIA_SUSPEND_DIAG
-	bool "Mitochodria: diagnose system suspend wakeups"
-	depends on PM_SLEEP
+config MITOCHODRIA_SC27XX_SPURIOUS_WAKE_RETRY
+	bool "Mitochodria: retry stateless SC27xx parent wakeups"
+	depends on PM_SLEEP && MFD_SC27XX_PMIC
 	help
-	  Add focused diagnostics for PSCI system suspend, GPIO keys, and the
-	  Spreadtrum PMIC EIC controller. The diagnostics are read-only and do
-	  not alter interrupt polarity, wakeup policy, or low-power registers.
+	  Retry system suspend once when the SC27xx parent IRQ wakes the system
+	  without any masked or raw PMIC interrupt status. Valid PMIC child
+	  interrupts, including the power key and RTC, resume normally.
 
 config MODULE_REL_CRCS
 	bool

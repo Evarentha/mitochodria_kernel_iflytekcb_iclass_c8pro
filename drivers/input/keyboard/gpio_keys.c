@@ -378,12 +378,6 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 		input_event(input, type, *bdata->code, state);
 	}
 	input_sync(input);
-
-#ifdef CONFIG_MITOCHODRIA_SUSPEND_DIAG
-	dev_err(input->dev.parent,
-		"mitochodria-suspend: gpio-key report code=%u state=%d suspended=%u\n",
-		*bdata->code, state, bdata->suspended);
-#endif
 }
 
 static void gpio_keys_gpio_work_func(struct work_struct *work)
@@ -402,12 +396,6 @@ static irqreturn_t gpio_keys_gpio_isr(int irq, void *dev_id)
 	struct gpio_button_data *bdata = dev_id;
 
 	BUG_ON(irq != bdata->irq);
-
-#ifdef CONFIG_MITOCHODRIA_SUSPEND_DIAG
-	dev_err(bdata->input->dev.parent,
-		"mitochodria-suspend: gpio-key irq=%d code=%u suspended=%u\n",
-		irq, *bdata->code, bdata->suspended);
-#endif
 
 	if (bdata->button->wakeup) {
 		const struct gpio_keys_button *button = bdata->button;
