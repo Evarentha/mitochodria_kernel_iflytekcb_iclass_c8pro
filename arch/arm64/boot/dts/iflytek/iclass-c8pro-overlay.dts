@@ -49,7 +49,6 @@
 					linux,input-type = <0x05>;
 					gpios = <&ap_gpio>, <0x58 0x01>;
 					debounce-interval = <0x02>;
-					wakeup-source;
 				};
 			};
 
