@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
+#include <linux/pm.h>
 #include <linux/spinlock.h>
 
 /* GPIO registers definition */
@@ -38,6 +39,32 @@ struct sprd_gpio {
 	spinlock_t lock;
 	int irq;
 };
+
+#ifdef CONFIG_MITOCHODRIA_SUSPEND_DIAG
+#define MITO_HALL_GPIO	88
+
+static void sprd_gpio_dump_hall(struct sprd_gpio *gpio, const char *stage)
+{
+	void __iomem *base = gpio->base +
+		SPRD_GPIO_BANK_SIZE * (MITO_HALL_GPIO / SPRD_GPIO_BANK_NR);
+
+	dev_err(gpio->chip.parent,
+		"mitochodria-suspend: AP-HALL %s "
+		"data=%08x dmsk=%08x dir=%08x is=%08x ibe=%08x "
+		"iev=%08x ie=%08x ris=%08x mis=%08x inen=%08x\n",
+		stage,
+		readl_relaxed(base + SPRD_GPIO_DATA),
+		readl_relaxed(base + SPRD_GPIO_DMSK),
+		readl_relaxed(base + SPRD_GPIO_DIR),
+		readl_relaxed(base + SPRD_GPIO_IS),
+		readl_relaxed(base + SPRD_GPIO_IBE),
+		readl_relaxed(base + SPRD_GPIO_IEV),
+		readl_relaxed(base + SPRD_GPIO_IE),
+		readl_relaxed(base + SPRD_GPIO_RIS),
+		readl_relaxed(base + SPRD_GPIO_MIS),
+		readl_relaxed(base + SPRD_GPIO_INEN));
+}
+#endif
 
 static inline void __iomem *sprd_gpio_bank_base(struct sprd_gpio *sprd_gpio,
 						unsigned int bank)
@@ -195,6 +222,11 @@ static void sprd_gpio_irq_handler(struct irq_desc *desc)
 		unsigned long reg = readl_relaxed(base + SPRD_GPIO_MIS) &
 			SPRD_GPIO_BANK_MASK;
 
+#ifdef CONFIG_MITOCHODRIA_SUSPEND_DIAG
+		if (bank == MITO_HALL_GPIO / SPRD_GPIO_BANK_NR &&
+		    (reg & BIT(SPRD_GPIO_BIT(MITO_HALL_GPIO))))
+			sprd_gpio_dump_hall(sprd_gpio, "irq-pending");
+#endif
 		for_each_set_bit(n, &reg, SPRD_GPIO_BANK_NR) {
 			girq = irq_find_mapping(chip->irq.domain,
 						bank * SPRD_GPIO_BANK_NR + n);
@@ -270,6 +302,28 @@ static int sprd_gpio_probe(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_MITOCHODRIA_SUSPEND_DIAG
+static int sprd_gpio_suspend_noirq(struct device *dev)
+{
+	sprd_gpio_dump_hall(dev_get_drvdata(dev), "suspend-noirq");
+	return 0;
+}
+
+static int sprd_gpio_resume_noirq(struct device *dev)
+{
+	sprd_gpio_dump_hall(dev_get_drvdata(dev), "resume-noirq");
+	return 0;
+}
+
+static const struct dev_pm_ops sprd_gpio_pm_ops = {
+	.suspend_noirq = sprd_gpio_suspend_noirq,
+	.resume_noirq = sprd_gpio_resume_noirq,
+};
+#define SPRD_GPIO_PM_OPS (&sprd_gpio_pm_ops)
+#else
+#define SPRD_GPIO_PM_OPS NULL
+#endif
+
 static const struct of_device_id sprd_gpio_of_match[] = {
 	{ .compatible = "sprd,sc9860-gpio", },
 	{ .compatible = "sprd,sharkl5-gpio", },
@@ -284,7 +338,8 @@ static struct platform_driver sprd_gpio_driver = {
 	.probe = sprd_gpio_probe,
 	.driver = {
 		.name = "sprd-gpio",
-		.of_match_table	= sprd_gpio_of_match,
+		.of_match_table = sprd_gpio_of_match,
+		.pm = SPRD_GPIO_PM_OPS,
 	},
 };
 
