@@ -22,7 +22,6 @@
 #include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
-#include <linux/mfd/sprd-sc27xx.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/export.h>
@@ -594,13 +593,7 @@ static int enter_state(suspend_state_t state)
 	trace_suspend_resume(TPS("suspend_enter"), state, false);
 	pm_pr_dbg("Suspending system (%s)\n", mem_sleep_labels[state]);
 	pm_restrict_gfp_mask();
-	do {
-		error = suspend_devices_and_enter(state);
-		if (error || !sprd_sc27xx_consume_spurious_wakeup())
-			break;
-
-		pm_suspend_clear_flags();
-	} while (true);
+	error = suspend_devices_and_enter(state);
 	pm_restore_gfp_mask();
 
  Finish:
