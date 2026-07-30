@@ -47,10 +47,6 @@ struct sprd_pmic_data {
 	u32 num_irqs;
 };
 
-#ifdef CONFIG_MITOCHODRIA_SC27XX_SPURIOUS_WAKE_RETRY
-static int sprd_pmic_handle_pre_irq(void *irq_drv_data);
-#endif
-
 /*
  * Since different PMICs of SC27xx series can have different interrupt
  * base address and irq number, we should save irq number and irq base
@@ -229,10 +225,6 @@ static int sprd_pmic_probe(struct spi_device *spi)
 	ddata->irq_chip.num_regs = 1;
 	ddata->irq_chip.num_irqs = pdata->num_irqs;
 	ddata->irq_chip.mask_invert = true;
-#ifdef CONFIG_MITOCHODRIA_SC27XX_SPURIOUS_WAKE_RETRY
-	ddata->irq_chip.handle_pre_irq = sprd_pmic_handle_pre_irq;
-	ddata->irq_chip.irq_drv_data = ddata;
-#endif
 
 	ddata->irqs = devm_kzalloc(&spi->dev, sizeof(struct regmap_irq) *
 				   pdata->num_irqs, GFP_KERNEL);
@@ -268,11 +260,9 @@ static int sprd_pmic_probe(struct spi_device *spi)
 
 #ifdef CONFIG_MITOCHODRIA_SC27XX_SPURIOUS_WAKE_RETRY
 static bool sprd_pmic_spurious_wakeup;
-static bool sprd_pmic_parent_had_status;
 
-static int sprd_pmic_handle_pre_irq(void *irq_drv_data)
+static bool sprd_pmic_irq_status_empty(struct sprd_pmic *ddata)
 {
-	struct sprd_pmic *ddata = irq_drv_data;
 	u32 mask_status, raw_status;
 	int ret;
 
@@ -281,10 +271,8 @@ static int sprd_pmic_handle_pre_irq(void *irq_drv_data)
 	ret |= regmap_read(ddata->regmap,
 			   ddata->irq_chip.status_base + SPRD_PMIC_INT_RAW_STATUS,
 			   &raw_status);
-	if (!ret && (mask_status || raw_status))
-		WRITE_ONCE(sprd_pmic_parent_had_status, true);
 
-	return 0;
+	return !ret && !mask_status && !raw_status;
 }
 
 bool sprd_sc27xx_consume_spurious_wakeup(void)
@@ -304,7 +292,6 @@ static int sprd_pmic_suspend(struct device *dev)
 
 #ifdef CONFIG_MITOCHODRIA_SC27XX_SPURIOUS_WAKE_RETRY
 	WRITE_ONCE(sprd_pmic_spurious_wakeup, false);
-	WRITE_ONCE(sprd_pmic_parent_had_status, false);
 #endif
 	if (device_may_wakeup(dev))
 		enable_irq_wake(ddata->irq);
@@ -317,8 +304,7 @@ static int sprd_pmic_resume(struct device *dev)
 	struct sprd_pmic *ddata = dev_get_drvdata(dev);
 
 #ifdef CONFIG_MITOCHODRIA_SC27XX_SPURIOUS_WAKE_RETRY
-	if (pm_wakeup_irq == ddata->irq &&
-	    !READ_ONCE(sprd_pmic_parent_had_status))
+	if (pm_wakeup_irq == ddata->irq && sprd_pmic_irq_status_empty(ddata))
 		WRITE_ONCE(sprd_pmic_spurious_wakeup, true);
 #endif
 	if (device_may_wakeup(dev))
