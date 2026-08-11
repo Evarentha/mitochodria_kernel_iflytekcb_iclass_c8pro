@@ -67,7 +67,7 @@ jobs:
     - name: Prepare kernel source from current repository
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        rsync -a --exclude='.git' --exclude='node_modules' --exclude='out' $GITHUB_WORKSPACE/ android-kernel/
+        rsync -a --exclude='.git' --exclude='node_modules' --exclude='out' --exclude='kernel_workspace' $GITHUB_WORKSPACE/ android-kernel/
 
     - name: Download source boot image
       if: env.BUILD_BOOT_IMG == 'true'
