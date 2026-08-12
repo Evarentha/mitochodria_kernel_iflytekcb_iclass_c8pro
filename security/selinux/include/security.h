@@ -66,6 +66,9 @@
 struct netlbl_lsm_secattr;
 
 extern int selinux_enabled;
+#ifdef CONFIG_KSU_MANUAL_HOOK
+extern int selinux_disabled;
+#endif
 
 /* Policy capabilities */
 enum {
@@ -278,4 +281,3 @@ extern void selnl_notify_policyload(u32 seqno);
 extern int selinux_nlmsg_lookup(u16 sclass, u16 nlmsg_type, u32 *perm);
 
 #endif /* _SELINUX_SECURITY_H_ */
-

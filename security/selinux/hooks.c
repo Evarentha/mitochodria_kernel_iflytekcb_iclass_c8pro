@@ -6848,9 +6848,13 @@ static void selinux_nf_ip_exit(void)
 
 #endif /* CONFIG_NETFILTER */
 
-#ifdef CONFIG_SECURITY_SELINUX_DISABLE
+#ifdef CONFIG_KSU_MANUAL_HOOK
+int selinux_disabled;
+#elif defined(CONFIG_SECURITY_SELINUX_DISABLE)
 static int selinux_disabled;
+#endif
 
+#ifdef CONFIG_SECURITY_SELINUX_DISABLE
 int selinux_disable(void)
 {
 	if (ss_initialized) {
