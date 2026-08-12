@@ -50,15 +50,26 @@ jobs:
         echo "BUILD_TIME=$(TZ=Asia/Shanghai date "+%Y%m%d%H%M")" >> $GITHUB_ENV
         echo "DEVICE=$(echo ${{ env.KERNEL_CONFIG }} | sed 's!vendor/!!;s/_defconfig//;s/_user//;s/-perf//')" >> $GITHUB_ENV
         sudo apt-get update
-        sudo apt install -y curl python2 wget vim git ccache automake flex lzop bison gperf build-essential zip zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler kmod python3 python3-pip binutils-aarch64-linux-gnu
+        sudo apt install -y curl python2 wget vim git ccache automake flex lzop bison gperf zip zlib1g-dev libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler kmod python3 python3-pip
         mkdir -p $GITHUB_WORKSPACE/kernel_workspace
 
   
 
-    - name: Download llvm-latest toolchain
+    - name: Download official LLVM toolchain
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
+        LLVM_INSTALLER=$RUNNER_TEMP/llvm.sh
+        wget -qO $LLVM_INSTALLER https://apt.llvm.org/llvm.sh
+        sudo bash $LLVM_INSTALLER all
+
+        LLVM_BIN=$(ls -d /usr/lib/llvm-*/bin | sort -V | tail -n 1)
+        LLVM_VERSION=${LLVM_BIN#/usr/lib/llvm-}
+        LLVM_VERSION=${LLVM_VERSION%/bin}
+        for tool in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-ranlib llvm-readelf llvm-strip; do
+          test -x $LLVM_BIN/$tool
+        done
+
+        echo "LLVM_VERSION=$LLVM_VERSION" >> $GITHUB_ENV
+        echo "LLVM_BIN=$LLVM_BIN" >> $GITHUB_ENV
           
         
 
@@ -170,17 +181,44 @@ jobs:
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
         export KBUILD_BUILD_HOST=Github-Action
         export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)  
-        LLVM_BIN=$(dirname "$(readlink -f "$(command -v clang)")")
-        export PATH=$LLVM_BIN:$PATH
-        LLVM_TOOLS="LLVM_IAS=1 AS=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip"
-        
+        LLVM_TARGET=aarch64-linux-gnu
+
         if [ ${{ env.ENABLE_CCACHE }} = true ]; then
-            make -j$(nproc --all) CC="ccache clang" KCFLAGS=-fuse-ld=lld O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu- ${{ env.KERNEL_CONFIG }}
-            make -j$(nproc --all) CC="ccache clang" KCFLAGS=-fuse-ld=lld O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu-
+            TARGET_CC="ccache $LLVM_BIN/clang --target=$LLVM_TARGET"
         else
-            make -j$(nproc --all) CC=clang KCFLAGS=-fuse-ld=lld O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu- ${{ env.KERNEL_CONFIG }}
-            make -j$(nproc --all) CC=clang KCFLAGS=-fuse-ld=lld O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu-
+            TARGET_CC="$LLVM_BIN/clang --target=$LLVM_TARGET"
         fi
+
+        echo "Target compiler: $TARGET_CC"
+        $LLVM_BIN/clang --version
+        $LLVM_BIN/ld.lld --version
+        $LLVM_BIN/llvm-ar --version
+
+        LLVM_MAKE_ARGS=(
+          "CC=$TARGET_CC"
+          "CPP=$LLVM_BIN/clang --target=$LLVM_TARGET -E"
+          "AS=$LLVM_BIN/clang --target=$LLVM_TARGET"
+          "LD=$LLVM_BIN/ld.lld"
+          "AR=$LLVM_BIN/llvm-ar"
+          "NM=$LLVM_BIN/llvm-nm"
+          "OBJCOPY=$LLVM_BIN/llvm-objcopy"
+          "OBJDUMP=$LLVM_BIN/llvm-objdump"
+          "READELF=$LLVM_BIN/llvm-readelf"
+          "STRIP=$LLVM_BIN/llvm-strip"
+          "HOSTCC=$LLVM_BIN/clang"
+          "HOSTCXX=$LLVM_BIN/clang++"
+          "HOSTAR=$LLVM_BIN/llvm-ar"
+          "HOSTLD=$LLVM_BIN/ld.lld"
+          "HOSTRANLIB=$LLVM_BIN/llvm-ranlib"
+          "HOSTLDFLAGS=-fuse-ld=$LLVM_BIN/ld.lld"
+          "LLVM_IAS=1"
+          "GCC_TOOLCHAIN="
+          "CROSS_COMPILE="
+          "KCFLAGS=-fuse-ld=$LLVM_BIN/ld.lld"
+        )
+
+        make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} "${LLVM_MAKE_ARGS[@]}" ${{ env.KERNEL_CONFIG }}
+        make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} "${LLVM_MAKE_ARGS[@]}"
 
     - name: Check a kernel output files
       run: |
