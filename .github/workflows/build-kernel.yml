@@ -175,11 +175,11 @@ jobs:
         LLVM_TOOLS="LLVM_IAS=1 AS=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip"
         
         if [ ${{ env.ENABLE_CCACHE }} = true ]; then
-            make -j$(nproc --all) CC="ccache clang" O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu- ${{ env.KERNEL_CONFIG }}
-            make -j$(nproc --all) CC="ccache clang" O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu-
+            make -j$(nproc --all) CC="ccache clang" KCFLAGS=-fuse-ld=lld O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu- ${{ env.KERNEL_CONFIG }}
+            make -j$(nproc --all) CC="ccache clang" KCFLAGS=-fuse-ld=lld O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu-
         else
-            make -j$(nproc --all) CC=clang O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu- ${{ env.KERNEL_CONFIG }}
-            make -j$(nproc --all) CC=clang O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu-
+            make -j$(nproc --all) CC=clang KCFLAGS=-fuse-ld=lld O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu- ${{ env.KERNEL_CONFIG }}
+            make -j$(nproc --all) CC=clang KCFLAGS=-fuse-ld=lld O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} $LLVM_TOOLS CROSS_COMPILE=aarch64-linux-gnu-
         fi
 
     - name: Check a kernel output files
