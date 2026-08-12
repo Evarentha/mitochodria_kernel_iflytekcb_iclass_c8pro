@@ -58,7 +58,7 @@ jobs:
     - name: Download llvm-latest toolchain
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
+        sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
           
         
 
