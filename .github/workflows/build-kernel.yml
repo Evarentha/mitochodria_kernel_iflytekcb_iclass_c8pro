@@ -55,21 +55,27 @@ jobs:
 
   
 
-    - name: Download official LLVM toolchain
+    - name: Download LLVM 22.1.8 toolchain
       run: |
-        LLVM_INSTALLER=$RUNNER_TEMP/llvm.sh
-        wget -qO $LLVM_INSTALLER https://apt.llvm.org/llvm.sh
-        sudo bash $LLVM_INSTALLER all
+        LLVM_VERSION=22.1.8
+        LLVM_ARCHIVE=$RUNNER_TEMP/LLVM-$LLVM_VERSION-Linux-X64.tar.xz
+        LLVM_ROOT=$RUNNER_TEMP/llvm-$LLVM_VERSION
+        LLVM_SHA256=df0e1ecf16caf3489a272a5eea4eec9b0d82878f6477fa309504f918a0006384
 
-        LLVM_BIN=$(ls -d /usr/lib/llvm-*/bin | sort -V | tail -n 1)
-        LLVM_VERSION=${LLVM_BIN#/usr/lib/llvm-}
-        LLVM_VERSION=${LLVM_VERSION%/bin}
+        wget -q --show-progress -O $LLVM_ARCHIVE https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/LLVM-$LLVM_VERSION-Linux-X64.tar.xz
+        echo "$LLVM_SHA256  $LLVM_ARCHIVE" | sha256sum --check --status
+        mkdir -p $LLVM_ROOT
+        tar -xJf $LLVM_ARCHIVE --strip-components=1 -C $LLVM_ROOT
+
+        LLVM_BIN=$LLVM_ROOT/bin
         for tool in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-ranlib llvm-readelf llvm-strip; do
           test -x $LLVM_BIN/$tool
         done
 
         echo "LLVM_VERSION=$LLVM_VERSION" >> $GITHUB_ENV
+        echo "LLVM_ROOT=$LLVM_ROOT" >> $GITHUB_ENV
         echo "LLVM_BIN=$LLVM_BIN" >> $GITHUB_ENV
+        echo "$LLVM_BIN" >> $GITHUB_PATH
           
         
 
@@ -77,7 +83,7 @@ jobs:
     - name: Prepare kernel source from current repository
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
-        rsync -a --exclude='.git' --exclude='node_modules' --exclude='out' --exclude='kernel_workspace' $GITHUB_WORKSPACE/ android-kernel/
+        rsync -a --exclude='.git' --exclude='node_modules' --exclude='out' --exclude='kernel_workspace' --exclude='llvm-22.1.8' --exclude='LLVM-22.1.8-Linux-X64' $GITHUB_WORKSPACE/ android-kernel/
 
     - name: Download source boot image
       if: env.BUILD_BOOT_IMG == 'true'
