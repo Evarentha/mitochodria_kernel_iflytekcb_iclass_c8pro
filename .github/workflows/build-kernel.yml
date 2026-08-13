@@ -181,12 +181,12 @@ jobs:
       with:
         key: build-kernel-${{ env.DEVICE }}${{ env.UPLOADNAME }}
         max-size: 2G
-
     - name: Build kernel
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        export KBUILD_BUILD_HOST=Github-Action
+        export KBUILD_BUILD_HOST=Github-Action-LinearTeam
         export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)  
+        export PATH="$LLVM_BIN:$PATH"
         LLVM_TARGET=aarch64-linux-gnu
 
         if [ ${{ env.ENABLE_CCACHE }} = true ]; then
@@ -201,6 +201,8 @@ jobs:
         $LLVM_BIN/llvm-ar --version
 
         LLVM_MAKE_ARGS=(
+          "LLVM=1"
+          "LLVM_IAS=1"
           "CC=$TARGET_CC"
           "CPP=$LLVM_BIN/clang --target=$LLVM_TARGET -E"
           "AS=$LLVM_BIN/clang --target=$LLVM_TARGET"
@@ -217,14 +219,15 @@ jobs:
           "HOSTLD=$LLVM_BIN/ld.lld"
           "HOSTRANLIB=$LLVM_BIN/llvm-ranlib"
           "HOSTLDFLAGS=-fuse-ld=$LLVM_BIN/ld.lld"
-          "LLVM_IAS=1"
+          "CLANG_TRIPLE=aarch64-linux-gnu-"
+          "CROSS_COMPILE=aarch64-linux-gnu-"
           "GCC_TOOLCHAIN="
-          "CROSS_COMPILE="
           "KCFLAGS=-fuse-ld=$LLVM_BIN/ld.lld"
         )
 
         make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} "${LLVM_MAKE_ARGS[@]}" ${{ env.KERNEL_CONFIG }}
         make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} "${LLVM_MAKE_ARGS[@]}"
+
 
     - name: Check a kernel output files
       run: |
