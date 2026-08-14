@@ -20,6 +20,7 @@
 #include <linux/of.h>
 #include <linux/i2c.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/pm_opp.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
@@ -70,10 +71,8 @@ static int cpudvfs_i2c_probe(struct i2c_client *client,
 	enum dcdc_name dcdc;
 	int ret;
 
-	if (!platdev) {
-		pr_err("No cpu dvfs device found.\n");
-		return -ENODEV;
-	}
+	if (!platdev)
+		return -EPROBE_DEFER;
 
 	np = client->dev.of_node;
 	if (!np) {
@@ -89,7 +88,39 @@ static int cpudvfs_i2c_probe(struct i2c_client *client,
 
 
 	pri = (struct cpudvfs_archdata *)platdev->archdata;
+	if (!pri || dcdc >= pri->dcdc_num) {
+		pr_err("Invalid DCDC I2C channel %u\n", dcdc);
+		return -EINVAL;
+	}
+
+	ret = pm_runtime_get_sync(client->adapter->dev.parent);
+	if (ret < 0) {
+		pm_runtime_put_noidle(client->adapter->dev.parent);
+		pr_err("Failed to keep DCDC%u I2C controller active: %d\n",
+			dcdc, ret);
+		return ret;
+	}
+
 	pri->pwr[dcdc].i2c_client = client;
+	return 0;
+}
+
+static int cpudvfs_i2c_remove(struct i2c_client *client)
+{
+	struct sprd_cpudvfs_device *platdev = sprd_hardware_dvfs_device_get();
+	struct cpudvfs_archdata *pri;
+	struct device_node *np = client->dev.of_node;
+	u32 dcdc;
+
+	if (platdev && np &&
+	    !of_property_read_u32(np, "dvfs-dcdc-i2c", &dcdc)) {
+		pri = (struct cpudvfs_archdata *)platdev->archdata;
+		if (pri && dcdc < pri->dcdc_num)
+			pri->pwr[dcdc].i2c_client = NULL;
+	}
+
+	pm_runtime_mark_last_busy(client->adapter->dev.parent);
+	pm_runtime_put_autosuspend(client->adapter->dev.parent);
 	return 0;
 }
 
@@ -115,6 +146,7 @@ static struct i2c_driver cpudvfs_i2c_driver[] = {
 			.of_match_table = cpudvfs_dcdc_cpu0_i2c_of_match,
 		},
 		.probe = cpudvfs_i2c_probe,
+		.remove = cpudvfs_i2c_remove,
 	},
 
 	{
@@ -124,6 +156,7 @@ static struct i2c_driver cpudvfs_i2c_driver[] = {
 			.of_match_table = cpudvfs_dcdc_cpu1_i2c_of_match,
 		},
 		.probe = cpudvfs_i2c_probe,
+		.remove = cpudvfs_i2c_remove,
 	}
 
 };
@@ -1762,6 +1795,22 @@ inline bool sprd_cpudvfs_probed(void *data, int cluster)
 	return true;
 }
 
+static bool sprd_cpudvfs_ready(void *data)
+{
+	struct cpudvfs_archdata *pdev = data;
+	int i;
+
+	if (!pdev || !pdev->probed || !pdev->pwr)
+		return false;
+
+	for (i = 0; i < pdev->dcdc_num; i++) {
+		if (pdev->pwr[i].i2c_used && !pdev->pwr[i].i2c_client)
+			return false;
+	}
+
+	return true;
+}
+
 static int dvfs_module_dt_parse(struct cpudvfs_archdata *pdev)
 {
 	struct property *prop;
@@ -2989,6 +3038,7 @@ struct dvfs_cluster global_slave_cluster[] = {
 static struct sprd_cpudvfs_device cpudvfs_plat_dev = {
 	.name = "sprd-cpudvfs-plat",
 	.ops = {
+		.ready = sprd_cpudvfs_ready,
 		.probed = sprd_cpudvfs_probed,
 		.enable = sprd_cpudvfs_enable,
 		.opp_add = sprd_cpudvfs_opp_add,

@@ -993,16 +993,6 @@ static int sugov_start(struct cpufreq_policy *policy)
 	struct sugov_policy *sg_policy = policy->governor_data;
 	unsigned int cpu;
 
-	if (!sg_policy || !sg_policy->tunables) {
-		pr_warn("sugov_start: governor_data lost, re-initializing\n");
-		sugov_init(policy);
-		sg_policy = policy->governor_data;
-		if (!sg_policy || !sg_policy->tunables) {
-			pr_err("sugov_start: re-init failed\n");
-			return -EINVAL;
-		}
-	}
-
 	sg_policy->up_rate_delay_ns =
 		sg_policy->tunables->up_rate_limit_us * NSEC_PER_USEC;
 	sg_policy->down_rate_delay_ns =

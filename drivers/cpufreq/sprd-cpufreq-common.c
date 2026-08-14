@@ -523,9 +523,6 @@ static int sprd_cpufreq_cpuhp_online(unsigned int cpu)
 	unsigned int olcpu, cluster_id;
 	struct sprd_cpufreq_driver_data *c;
 
-	if (cpuhp_tasks_frozen)
-		return NOTIFY_DONE;
-
 	if (cpu >= nr_cpu_ids || !cpu_possible(cpu)) {
 		pr_err("Invalid CPU%d\n", cpu);
 		return NOTIFY_DONE;
@@ -555,9 +552,6 @@ static int sprd_cpufreq_cpuhp_offline(unsigned int cpu)
 {
 	unsigned int olcpu, cluster_id;
 	struct sprd_cpufreq_driver_data *c;
-
-	if (cpuhp_tasks_frozen)
-		return NOTIFY_DONE;
 
 	if (cpu >= nr_cpu_ids || !cpu_possible(cpu)) {
 		pr_err("Invalid CPU%d\n", cpu);

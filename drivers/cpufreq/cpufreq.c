@@ -2610,9 +2610,6 @@ static enum cpuhp_state hp_online;
 
 static int cpuhp_cpufreq_online(unsigned int cpu)
 {
-	if (cpufreq_suspended || cpuhp_tasks_frozen)
-		return 0;
-
 	cpufreq_online(cpu);
 
 	return 0;
@@ -2620,9 +2617,6 @@ static int cpuhp_cpufreq_online(unsigned int cpu)
 
 static int cpuhp_cpufreq_offline(unsigned int cpu)
 {
-	if (cpufreq_suspended || cpuhp_tasks_frozen)
-		return 0;
-
 	cpufreq_offline(cpu);
 
 	return 0;

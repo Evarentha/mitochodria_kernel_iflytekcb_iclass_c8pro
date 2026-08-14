@@ -587,17 +587,28 @@ static int sprd_hardware_cpufreq_probe(struct platform_device *pdev)
 	}
 
 	cell = of_nvmem_cell_get(np, "dvfs_bin");
-	if (!IS_ERR(cell))
+	if (IS_ERR(cell)) {
+		ret = PTR_ERR(cell);
+		if (ret == -EPROBE_DEFER)
+			goto exit;
+	} else {
 		nvmem_cell_put(cell);
+	}
+
+	if (!plat_dev ||
+	    (plat_dev->ops.ready && !plat_dev->ops.ready(plat_dev->archdata))) {
+		ret = -EPROBE_DEFER;
+		goto exit;
+	}
 
 	sprd_cpufreq_cpuhp_setup();
 
 	ret = cpufreq_register_driver(&sprd_hardware_cpufreq_driver);
 	if (ret)
-		dev_err(&pdev->dev, "Failed to reigister cpufreq driver\n");
-	else
-		dev_info(&pdev->dev, "Succeeded to register cpufreq driver\n");
+		dev_err(&pdev->dev, "Failed to register cpufreq driver: %d\n",
+			ret);
 
+exit:
 	of_node_put(np);
 	of_node_put(cpu_np);
 
