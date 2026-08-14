@@ -1841,16 +1841,10 @@ EXPORT_SYMBOL_GPL(__cpuhp_state_remove_instance);
  */
 void __cpuhp_remove_state_cpuslocked(enum cpuhp_state state, bool invoke)
 {
-	struct cpuhp_step *sp;
+	struct cpuhp_step *sp = cpuhp_get_step(state);
 	int cpu;
 
-	if (cpuhp_cb_check(state)) {
-		pr_warn_once("CPU hotplug: ignoring invalid remove state %d\n",
-			     state);
-		return;
-	}
-
-	sp = cpuhp_get_step(state);
+	BUG_ON(cpuhp_cb_check(state));
 
 	lockdep_assert_cpus_held();
 
