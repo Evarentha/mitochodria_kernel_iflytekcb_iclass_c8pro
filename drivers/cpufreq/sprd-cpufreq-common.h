@@ -119,6 +119,7 @@ struct sprd_cpufreq_driver_data {
 #define CPUFREQHW_NAME_LEN			30
 
 struct sprd_cpudvfs_ops {
+	bool (*ready)(void *drvdata);
 	bool (*probed)(void *drvdata, int cluster);
 	bool (*enable)(void *drvdata, int cluster, bool en);
 	int (*opp_add)(void *drvdata, unsigned int cluster,

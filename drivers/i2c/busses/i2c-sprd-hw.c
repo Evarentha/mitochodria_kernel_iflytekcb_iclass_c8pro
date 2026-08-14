@@ -447,12 +447,16 @@ static int sprd_i2c_hw_clk_init(struct sprd_i2c_hw *i2c_dev)
 		i2c_dev->clk = NULL;
 	}
 
-	i2c_dev->clk_hw = devm_clk_get(i2c_dev->dev, "clk_hw_i2c");
-	if (IS_ERR(i2c_dev->clk_hw)) {
-		dev_warn(&i2c_dev->adap.dev,
-			 "i2c%d can't get the clk_hw clock\n",
-			 i2c_dev->adap.nr);
-		i2c_dev->clk_hw = NULL;
+	i2c_dev->clk_hw = NULL;
+	if (of_property_match_string(i2c_dev->dev->of_node, "clock-names",
+				     "clk_hw_i2c") >= 0) {
+		i2c_dev->clk_hw = devm_clk_get(i2c_dev->dev, "clk_hw_i2c");
+		if (IS_ERR(i2c_dev->clk_hw)) {
+			dev_warn(&i2c_dev->adap.dev,
+				 "i2c%d can't get the clk_hw clock\n",
+				 i2c_dev->adap.nr);
+			i2c_dev->clk_hw = NULL;
+		}
 	}
 
 	return 0;

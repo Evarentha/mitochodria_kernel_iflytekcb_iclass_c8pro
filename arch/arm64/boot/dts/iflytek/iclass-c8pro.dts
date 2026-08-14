@@ -1304,7 +1304,9 @@
 				compatible = "sprd,roc1-hw-i2c";
 				reg = <0x00 0x32060000 0x00 0x1000>;
 				interrupts = <0x00 0x44 0x04>;
-				clock-names = "source", "enable", "i2c", "clk_hw_i2c";
+				clock-names = "source", "enable", "i2c";
+				clocks = <&ext_26m>, <&aonapb_gate 0x2c>,
+					 <&aon_clk 0x11>;
 				clock-frequency = <0x61a80>;
 				#address-cells = <0x01>;
 				#size-cells = <0x00>;
@@ -7140,7 +7142,7 @@
 
 	chosen {
 		stdout-path = "/soc/ap-apb/serial@70100000";
-		bootargs = "earlycon=sprd_serial,0x70100000,115200n8 console=ttyS1,115200n8 loglevel=8 init=/init root=/dev/mmcblk0p30 rootfstype=ext4 ro rootwait androidboot.hardware=ud710_21c10 androidboot.dtbo_idx=0 printk.devkmsg=on pcie_ports=compat";
+		bootargs = "earlycon=sprd_serial,0x70100000,115200n8 console=ttyS1,115200n8 loglevel=1 init=/init root=/dev/mmcblk0p30 rootfstype=ext4 ro rootwait androidboot.hardware=ud710_21c10 androidboot.dtbo_idx=0 printk.devkmsg=on pcie_ports=compat";
 	};
 
 	ipi: interrupt-controller {
@@ -7295,7 +7297,8 @@
 
 	dvfs_dcdc_cpu1_supply: dvfs-dcdc-cpu1-supply {
 		supply-type-sel = <0x2a0 0x00 0x01>;
-		pmic-type-num = <0x02>;
+		/* AON I2C0 channels target DA9121 registers 0x20 and 0x25. */
+		pmic-type-num = <0x03>;
 		top-dvfs-i2c-state = <0x8c 0x04 0x0f>;
 		voltage-grade-num = <0x07>;
 		voltage-grade = <0x00 0x4b 0x280 0x00 0xffff 0x01 0x50 0x280 0x10 0xffff 0x02 0x55 0x284 0x00 0xffff 0x03 0x5a 0x284 0x10 0xffff 0x04 0x5f 0x288 0x00 0xffff 0x05 0x64 0x288 0x10 0xffff 0x06 0x69 0x28c 0x00 0xffff>;
