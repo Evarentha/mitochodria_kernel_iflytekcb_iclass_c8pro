@@ -186,7 +186,7 @@ void panic(const char *fmt, ...)
 	if (!test_taint(TAINT_DIE) && oops_in_progress <= 1)
 		dump_stack();
 #endif
-#ifdef CONFIG_SPRD_SYSDUMP
+#if defined(CONFIG_SPRD_SYSDUMP) && !defined(CONFIG_PANIC_DISK_STORE)
 	sysdump_enter(0, buf, NULL);
 #else
 	/*
