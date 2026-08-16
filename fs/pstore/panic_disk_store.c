@@ -12,8 +12,8 @@
 #include <linux/kmsg_dump.h>
 #include <linux/timekeeping.h>
 
-#define PANIC_DISK_STORE_BDEV_PATH "/dev/block/mmcblk0p45"
-#define PANIC_DISK_STORE_PARTITION_SIZE (10 * 1024 * 1024)
+#define PANIC_DISK_STORE_BDEV_PATH "/dev/block/mmcblk0p46"
+#define PANIC_DISK_STORE_PARTITION_SIZE (9 * 1024 * 1024)
 #define PANIC_DISK_STORE_HEADER_SIZE PAGE_SIZE
 #define PANIC_DISK_STORE_MAX_LOG_SIZE (8 * 1024 * 1024)
 #define PANIC_DISK_STORE_IO_SIZE (64 * 1024)
