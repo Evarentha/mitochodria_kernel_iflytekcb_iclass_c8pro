@@ -127,6 +127,9 @@ EXPORT_SYMBOL(nmi_panic);
 				const char *reason,
 				struct pt_regs *regs);
 #endif
+#ifdef CONFIG_PANIC_DISK_STORE
+	extern void panic_disk_store_write(void);
+#endif
 /**
  *	panic - halt the system
  *	@fmt: The text string to print
@@ -225,6 +228,9 @@ void panic(const char *fmt, ...)
 	/* Call flush even twice. It tries harder with a single online CPU */
 	printk_safe_flush_on_panic();
 	kmsg_dump(KMSG_DUMP_PANIC);
+#ifdef CONFIG_PANIC_DISK_STORE
+	panic_disk_store_write();
+#endif
 
 	/*
 	 * If you doubt kdump always works fine in any situation,

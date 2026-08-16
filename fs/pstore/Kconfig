@@ -89,12 +89,11 @@ config PSTORE_RAM
 	  For more information, see Documentation/admin-guide/ramoops.rst.
 
 config PANIC_DISK_STORE
-	bool "Store panic logs on /data"
+	bool "Store panic logs on a raw block partition"
 	depends on PSTORE
 	depends on PRINTK
 	default n
 	help
-	  Store panic kernel messages in /data/panic/ as a best-effort
-	  fallback when a persistent RAM log is not available. The panic
-	  directory is created if needed. This option may fail if the VFS,
-	  filesystem, or storage driver is damaged by the panic.
+	  Store the last 8 MiB of panic kernel messages in a dedicated raw
+	  block partition. The partition is opened and all buffers are
+	  allocated at boot so the panic path does not use the VFS.
