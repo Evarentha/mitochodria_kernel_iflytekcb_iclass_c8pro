@@ -52,6 +52,7 @@ static struct usb_gadget_strings *dev_strings[] = {
 
 static struct usb_function_instance *fi_acm;
 static struct usb_function *f_acm;
+static unsigned char tty_line;
 
 static int usb_debug_uart_bind_config(struct usb_configuration *c)
 {
@@ -76,12 +77,18 @@ static struct usb_configuration debug_uart_config_driver = {
 
 static int usb_debug_uart_bind(struct usb_composite_dev *cdev)
 {
-	struct usb_gadget_strings **dev_str = dev_strings;
 	int status;
 
+	/* Allocate a tty line for console */
+	status = gserial_alloc_line(&tty_line);
+	if (status)
+		return status;
+
 	fi_acm = usb_get_function_instance("acm");
-	if (IS_ERR(fi_acm))
-		return PTR_ERR(fi_acm);
+	if (IS_ERR(fi_acm)) {
+		status = PTR_ERR(fi_acm);
+		goto fail_get_instance;
+	}
 
 	status = usb_string_ids_tab(cdev, strings_dev);
 	if (status < 0)
@@ -118,6 +125,8 @@ fail_otg_desc:
 	otg_desc[0] = NULL;
 fail_string_ids:
 	usb_put_function_instance(fi_acm);
+fail_get_instance:
+	gserial_free_line(tty_line);
 	return status;
 }
 
@@ -127,6 +136,8 @@ static int usb_debug_uart_unbind(struct usb_composite_dev *cdev)
 		usb_put_function(f_acm);
 	if (!IS_ERR_OR_NULL(fi_acm))
 		usb_put_function_instance(fi_acm);
+
+	gserial_free_line(tty_line);
 
 	kfree(otg_desc[0]);
 	otg_desc[0] = NULL;
@@ -147,7 +158,7 @@ static int __init usb_debug_uart_init(void)
 {
 	return usb_composite_probe(&usb_debug_uart_driver);
 }
-module_init(usb_debug_uart_init);
+subsys_initcall(usb_debug_uart_init);
 
 static void __exit usb_debug_uart_exit(void)
 {
