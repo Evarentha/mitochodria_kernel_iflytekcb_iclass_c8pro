@@ -3441,3 +3441,193 @@ void dwc3_gadget_process_pending_events(struct dwc3 *dwc)
 		enable_irq(dwc->irq_gadget);
 	}
 }
+
+#ifdef CONFIG_USB_DEBUG_UART
+
+/*
+ * Panic-safe USB debug UART transmit support
+ *
+ * This provides a bounded best-effort polling path for panic console output.
+ * It does not use locks, IRQs, DMA mapping, memory allocation, or runtime PM.
+ * Resources are preallocated during normal boot.
+ */
+
+#define DWC3_DEBUG_UART_BUF_SIZE	(16 * 1024)
+#define DWC3_DEBUG_UART_PANIC_TIMEOUT_MS 200
+
+static struct {
+	struct dwc3		*dwc;
+	struct dwc3_ep		*dep;
+	void			*buf;
+	dma_addr_t		buf_dma;
+	struct dwc3_trb		*trb;
+	dma_addr_t		trb_dma;
+	atomic_t		panic_active;
+	atomic_t		armed;
+} dwc3_debug_uart_ctx;
+
+int dwc3_gadget_debug_uart_arm(struct usb_ep *ep)
+{
+	struct dwc3_ep *dep = to_dwc3_ep(ep);
+	struct dwc3 *dwc = dep->dwc;
+	void *buf;
+	dma_addr_t buf_dma;
+	struct dwc3_trb *trb;
+	dma_addr_t trb_dma;
+
+	/* Already armed */
+	if (atomic_cmpxchg(&dwc3_debug_uart_ctx.armed, 0, 1) != 0)
+		return 0;
+
+	/* Allocate DMA coherent buffer for panic payload */
+	buf = dma_alloc_coherent(dwc->sysdev, DWC3_DEBUG_UART_BUF_SIZE,
+				 &buf_dma, GFP_KERNEL);
+	if (!buf)
+		goto fail_buf;
+
+	/* Allocate DMA coherent TRB */
+	trb = dma_alloc_coherent(dwc->sysdev, sizeof(*trb),
+				 &trb_dma, GFP_KERNEL);
+	if (!trb)
+		goto fail_trb;
+
+	/* Store resources */
+	dwc3_debug_uart_ctx.dwc = dwc;
+	dwc3_debug_uart_ctx.dep = dep;
+	dwc3_debug_uart_ctx.buf = buf;
+	dwc3_debug_uart_ctx.buf_dma = buf_dma;
+	dwc3_debug_uart_ctx.trb = trb;
+	dwc3_debug_uart_ctx.trb_dma = trb_dma;
+	smp_wmb();
+
+	return 0;
+
+fail_trb:
+	dma_free_coherent(dwc->sysdev, DWC3_DEBUG_UART_BUF_SIZE, buf, buf_dma);
+fail_buf:
+	atomic_set(&dwc3_debug_uart_ctx.armed, 0);
+	return -ENOMEM;
+}
+EXPORT_SYMBOL_GPL(dwc3_gadget_debug_uart_arm);
+
+void dwc3_gadget_debug_uart_disarm(struct usb_ep *ep)
+{
+	struct dwc3_ep *dep = to_dwc3_ep(ep);
+	struct dwc3 *dwc = dep->dwc;
+
+	/* Not armed or already in panic mode - don't free */
+	if (atomic_read(&dwc3_debug_uart_ctx.panic_active))
+		return;
+
+	if (atomic_cmpxchg(&dwc3_debug_uart_ctx.armed, 1, 0) != 1)
+		return;
+
+	/* Free resources */
+	if (dwc3_debug_uart_ctx.trb)
+		dma_free_coherent(dwc->sysdev, sizeof(*dwc3_debug_uart_ctx.trb),
+				  dwc3_debug_uart_ctx.trb,
+				  dwc3_debug_uart_ctx.trb_dma);
+
+	if (dwc3_debug_uart_ctx.buf)
+		dma_free_coherent(dwc->sysdev, DWC3_DEBUG_UART_BUF_SIZE,
+				  dwc3_debug_uart_ctx.buf,
+				  dwc3_debug_uart_ctx.buf_dma);
+
+	dwc3_debug_uart_ctx.dwc = NULL;
+	dwc3_debug_uart_ctx.dep = NULL;
+	dwc3_debug_uart_ctx.buf = NULL;
+	dwc3_debug_uart_ctx.trb = NULL;
+}
+EXPORT_SYMBOL_GPL(dwc3_gadget_debug_uart_disarm);
+
+int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
+					ktime_t deadline)
+{
+	struct dwc3 *dwc = dwc3_debug_uart_ctx.dwc;
+	struct dwc3_ep *dep = dwc3_debug_uart_ctx.dep;
+	struct dwc3_trb *trb = dwc3_debug_uart_ctx.trb;
+	u32 cmd;
+	int ret;
+	ktime_t start;
+
+	/* Single panic writer, no reentrancy */
+	if (atomic_xchg(&dwc3_debug_uart_ctx.panic_active, 1))
+		return -EBUSY;
+
+	/* Check preconditions without locks */
+	if (!atomic_read(&dwc3_debug_uart_ctx.armed))
+		goto out_abort;
+
+	smp_rmb();
+
+	if (!dwc || !dep || !trb)
+		goto out_abort;
+
+	if (!dwc->gadget_driver || !dep->endpoint.desc)
+		goto out_abort;
+
+	if (ktime_after(ktime_get(), deadline))
+		goto out_abort;
+
+	/* Bound length to preallocated buffer */
+	if (len > DWC3_DEBUG_UART_BUF_SIZE)
+		len = DWC3_DEBUG_UART_BUF_SIZE;
+
+	/* Copy to DMA coherent buffer */
+	memcpy(dwc3_debug_uart_ctx.buf, buf, len);
+	wmb();
+
+	/* Prepare TRB */
+	trb->bpl = lower_32_bits(dwc3_debug_uart_ctx.buf_dma);
+	trb->bph = upper_32_bits(dwc3_debug_uart_ctx.buf_dma);
+	trb->size = len;
+	trb->ctrl = DWC3_TRBCTL_NORMAL | DWC3_TRB_CTRL_HWO | DWC3_TRB_CTRL_IOC;
+	wmb();
+
+	/* Issue STARTTRANSFER without lock */
+	dwc3_writel(dwc->regs, DWC3_DEPCMDPAR0, lower_32_bits(dwc3_debug_uart_ctx.trb_dma));
+	dwc3_writel(dwc->regs, DWC3_DEPCMDPAR1, upper_32_bits(dwc3_debug_uart_ctx.trb_dma));
+
+	cmd = DWC3_DEPCMD_STARTTRANSFER | DWC3_DEPCMD_PARAM(0);
+	dwc3_writel(dep->regs, DWC3_DEPCMD, cmd);
+
+	/* Poll command active */
+	start = ktime_get();
+	do {
+		cmd = dwc3_readl(dep->regs, DWC3_DEPCMD);
+		if (!(cmd & DWC3_DEPCMD_CMDACT))
+			break;
+		if (ktime_after(ktime_get(), deadline))
+			goto out_abort;
+		cpu_relax();
+	} while (ktime_before(ktime_get(), ktime_add_ms(start, 20)));
+
+	if (cmd & DWC3_DEPCMD_CMDACT)
+		goto out_abort;
+
+	/* Poll TRB ownership */
+	start = ktime_get();
+	do {
+		rmb();
+		if (!(trb->ctrl & DWC3_TRB_CTRL_HWO))
+			break;
+		if (ktime_after(ktime_get(), deadline))
+			goto out_abort;
+		cpu_relax();
+	} while (ktime_before(ktime_get(), ktime_add_ms(start, 100)));
+
+	if (trb->ctrl & DWC3_TRB_CTRL_HWO)
+		goto out_abort;
+
+	ret = 0;
+	goto out;
+
+out_abort:
+	ret = -ETIMEDOUT;
+out:
+	/* Leave panic_active set to prevent reentry */
+	return ret;
+}
+EXPORT_SYMBOL_GPL(dwc3_gadget_debug_uart_panic_write);
+
+#endif /* CONFIG_USB_DEBUG_UART */

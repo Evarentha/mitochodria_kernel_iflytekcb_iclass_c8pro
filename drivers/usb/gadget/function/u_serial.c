@@ -30,6 +30,14 @@
 #include <linux/console.h>
 #include <linux/kthread.h>
 
+#ifdef CONFIG_USB_DEBUG_UART
+#include <linux/timekeeping.h>
+
+extern int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
+						      ktime_t deadline);
+extern void dwc3_gadget_debug_uart_panic_enter(void);
+#endif
+
 #include "u_serial.h"
 
 
@@ -82,6 +90,13 @@
 #define QUEUE_SIZE		16
 #define WRITE_BUF_SIZE		8192		/* TX only */
 #define GS_CONSOLE_BUF_SIZE	8192
+
+#ifdef CONFIG_USB_DEBUG_UART
+static int usb_debug_uart_panic_mode;
+
+extern int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
+					       ktime_t deadline);
+#endif
 
 /* circular buffer */
 struct gs_buf {
@@ -1145,6 +1160,10 @@ static int gs_console_thread(void *data)
 	do {
 		port = info->port;
 		set_current_state(TASK_INTERRUPTIBLE);
+#ifdef CONFIG_USB_DEBUG_UART
+		if (smp_load_acquire(&usb_debug_uart_panic_mode))
+			goto sched;
+#endif
 		if (!port || !port->port_usb
 		    || !port->port_usb->in || !info->console_req)
 			goto sched;
@@ -1221,6 +1240,14 @@ static void gs_console_write(struct console *co,
 	struct gscons_info *info = &gscons_info;
 	unsigned long flags;
 
+#ifdef CONFIG_USB_DEBUG_UART
+	if (smp_load_acquire(&usb_debug_uart_panic_mode)) {
+		ktime_t deadline = ktime_add_ms(ktime_get(), 200);
+		dwc3_gadget_debug_uart_panic_write(buf, count, deadline);
+		return;
+	}
+#endif
+
 	spin_lock_irqsave(&info->con_lock, flags);
 	gs_buf_put(&info->con_buf, buf, count);
 	spin_unlock_irqrestore(&info->con_lock, flags);
@@ -1244,13 +1271,21 @@ static struct console gserial_cons = {
 	.write =	gs_console_write,
 	.device =	gs_console_device,
 	.setup =	gs_console_setup,
+#ifdef CONFIG_USB_DEBUG_UART
+	.flags =	CON_ENABLED,
+#else
 	.flags =	CON_PRINTBUFFER,
+#endif
 	.index =	-1,
 	.data =		&gs_tty_driver,
 };
 
 static void gserial_console_init(void)
 {
+#ifdef CONFIG_USB_DEBUG_UART
+	if (gs_console_setup(&gserial_cons, NULL))
+		return;
+#endif
 	register_console(&gserial_cons);
 }
 
@@ -1263,6 +1298,14 @@ static void gserial_console_exit(void)
 		kthread_stop(info->console_thread);
 	gs_buf_free(&info->con_buf);
 }
+
+#ifdef CONFIG_USB_DEBUG_UART
+void usb_debug_uart_panic_enter(void)
+{
+	smp_store_release(&usb_debug_uart_panic_mode, 1);
+}
+EXPORT_SYMBOL_GPL(usb_debug_uart_panic_enter);
+#endif
 
 #else
 
@@ -1490,6 +1533,13 @@ int gserial_connect(struct gserial *gser, u8 port_num)
 	status = gs_console_connect(port_num);
 	spin_unlock_irqrestore(&port->port_lock, flags);
 
+#ifdef CONFIG_USB_DEBUG_UART
+	if (status == 0 && port_num == 0 && gser->in) {
+		extern int dwc3_gadget_debug_uart_arm(struct usb_ep *ep);
+		dwc3_gadget_debug_uart_arm(gser->in);
+	}
+#endif
+
 	return status;
 
 fail_out:
@@ -1534,6 +1584,13 @@ void gserial_disconnect(struct gserial *gser)
 	/* disable endpoints, aborting down any active I/O */
 	usb_ep_disable(gser->out);
 	usb_ep_disable(gser->in);
+
+#ifdef CONFIG_USB_DEBUG_UART
+	if (port->port_num == 0 && gser->in) {
+		extern void dwc3_gadget_debug_uart_disarm(struct usb_ep *ep);
+		dwc3_gadget_debug_uart_disarm(gser->in);
+	}
+#endif
 
 	/* finally, free any unused/unusable I/O buffers */
 	spin_lock_irqsave(&port->port_lock, flags);

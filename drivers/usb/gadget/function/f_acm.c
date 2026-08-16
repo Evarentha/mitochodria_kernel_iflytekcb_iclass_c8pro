@@ -22,6 +22,10 @@
 
 #include "u_serial.h"
 
+#ifdef CONFIG_USB_DEBUG_UART
+#include "../../dwc3/gadget.h"
+#endif
+
 
 /*
  * This CDC ACM function support just wraps control functions and
@@ -456,7 +460,14 @@ static int acm_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 				return -EINVAL;
 			}
 		}
-		gserial_connect(&acm->port, acm->port_num);
+		if (gserial_connect(&acm->port, acm->port_num))
+			return -EIO;
+#ifdef CONFIG_USB_DEBUG_UART
+		if (dwc3_gadget_debug_uart_arm(acm->port.in)) {
+			gserial_disconnect(&acm->port);
+			return -ENOMEM;
+		}
+#endif
 
 	} else
 		return -EINVAL;
@@ -470,6 +481,10 @@ static void acm_disable(struct usb_function *f)
 	struct usb_composite_dev *cdev = f->config->cdev;
 
 	dev_dbg(&cdev->gadget->dev, "acm ttyGS%d deactivated\n", acm->port_num);
+#ifdef CONFIG_USB_DEBUG_UART
+	if (acm->port.in)
+		dwc3_gadget_debug_uart_disarm(acm->port.in);
+#endif
 	gserial_disconnect(&acm->port);
 	usb_ep_disable(acm->notify);
 }

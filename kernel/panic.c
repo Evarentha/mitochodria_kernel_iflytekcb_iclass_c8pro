@@ -130,6 +130,9 @@ EXPORT_SYMBOL(nmi_panic);
 #ifdef CONFIG_PANIC_DISK_STORE
 	extern void panic_disk_store_write(void);
 #endif
+#ifdef CONFIG_USB_DEBUG_UART
+	extern void usb_debug_uart_panic_enter(void);
+#endif
 /**
  *	panic - halt the system
  *	@fmt: The text string to print
@@ -228,6 +231,9 @@ void panic(const char *fmt, ...)
 	/* Call flush even twice. It tries harder with a single online CPU */
 	printk_safe_flush_on_panic();
 	kmsg_dump(KMSG_DUMP_PANIC);
+#ifdef CONFIG_USB_DEBUG_UART
+	usb_debug_uart_panic_enter();
+#endif
 #ifdef CONFIG_PANIC_DISK_STORE
 	panic_disk_store_write();
 #endif

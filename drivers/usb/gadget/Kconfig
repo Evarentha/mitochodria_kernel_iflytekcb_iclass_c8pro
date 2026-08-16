@@ -112,6 +112,24 @@ config USB_GADGET_VBUS_DRAW
 	   This value will be used except for system-specific gadget
 	   drivers that have more specific information.
 
+config USB_DEBUG_UART
+	bool "Kernel USB debug UART with panic transmit"
+	depends on USB_GADGET=y && USB_DWC3=y && TTY
+	select USB_LIBCOMPOSITE
+	select USB_U_SERIAL
+	select USB_F_ACM
+	select U_SERIAL_CONSOLE
+	help
+	  Register a built-in CDC ACM gadget as a kernel console that mirrors
+	  printk output to an external Linux host over USB. The console is
+	  automatically enabled at boot without requiring console=ttyGS0 in
+	  bootargs. Panic output uses a bounded best-effort DWC3 polling path.
+
+	  When enabled, the kernel exclusively owns the DWC3 UDC. Android
+	  configfs gadget (ADB/MTP/USB tethering) will be unavailable.
+
+	  This is intended for kernel debugging only. Say N for production.
+
 config USB_GADGET_STORAGE_NUM_BUFFERS
 	int "Number of storage pipeline buffers"
 	range 2 256
