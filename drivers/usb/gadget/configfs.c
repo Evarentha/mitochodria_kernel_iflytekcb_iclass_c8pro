@@ -1846,11 +1846,13 @@ static struct config_group *gadgets_make(
 	if (!gi->composite.gadget_driver.function)
 		goto err;
 
+#ifdef CONFIG_USB_CONFIGFS_UEVENT
 	gi->count = gadget_count;
 	if (android_device_create(gi) < 0)
 		goto err;
 
 	gadget_count++;
+#endif
 	return &gi->group;
 
 err:
