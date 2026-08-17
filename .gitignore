@@ -2,7 +2,7 @@ node_modules/
 package.json
 package-lock.json
 
-# Copy from linux offical
+# Copy from linux official
 *.a
 *.asn1.[ch]
 *.bc
