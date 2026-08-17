@@ -222,8 +222,15 @@ static __init int dwc3_sprd_charger_mode(char *str)
 {
 	if (strcmp(str, "charger"))
 		boot_charging = 0;
-	else
+	else {
+#ifdef CONFIG_USB_DEBUG_UART
+		/* USB debug UART needs DWC3 active even in charger mode */
+		boot_charging = 0;
+		pr_info("dwc3-sprd: USB_DEBUG_UART enabled, ignoring charger mode\n");
+#else
 		boot_charging = 1;
+#endif
+	}
 
 	return 0;
 }
@@ -284,6 +291,7 @@ static int dwc3_sprd_start(struct dwc3_sprd *sdwc, enum usb_dr_mode mode)
 	 * If the charger type is not SDP or CDP type, it does not need to
 	 * resume the dwc3 device, just charging.
 	 */
+#ifndef CONFIG_USB_DEBUG_UART
 	if ((mode == USB_DR_MODE_PERIPHERAL &&
 	    !dwc3_sprd_is_connect_host(sdwc)) || boot_charging) {
 		spin_lock_irqsave(&sdwc->lock, flags);
@@ -294,6 +302,7 @@ static int dwc3_sprd_start(struct dwc3_sprd *sdwc, enum usb_dr_mode mode)
 			 "Don't need resume dwc3 device in charging mode!\n");
 		return 0;
 	}
+#endif
 
 	/*
 	 * After dwc3 core initialization, the dwc3 core will enter suspend mode
@@ -330,6 +339,7 @@ static int dwc3_sprd_start(struct dwc3_sprd *sdwc, enum usb_dr_mode mode)
 		 * system is in charging mode, which means it does not need to
 		 * resume the dwc3 device.
 		 */
+#ifndef CONFIG_USB_DEBUG_UART
 		spin_lock_irqsave(&sdwc->lock, flags);
 		sdwc->charging_mode = true;
 		spin_unlock_irqrestore(&sdwc->lock, flags);
@@ -337,6 +347,14 @@ static int dwc3_sprd_start(struct dwc3_sprd *sdwc, enum usb_dr_mode mode)
 		dev_info(sdwc->dev,
 			 "Don't resume dwc3 device in charging mode!\n");
 		return 0;
+#else
+		/*
+		 * USB debug UART gadget doesn't use configfs, but it's a valid
+		 * UDC user. Continue with dwc3 resume for debug console.
+		 */
+		dev_info(sdwc->dev,
+			 "USB_DEBUG_UART: UDC not started from configfs, continuing anyway\n");
+#endif
 	}
 
 	if (mode == USB_DR_MODE_HOST) {
