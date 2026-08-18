@@ -11,6 +11,7 @@
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/tty.h>
+#include <linux/workqueue.h>
 
 #include "u_serial.h"
 
@@ -18,6 +19,7 @@ USB_GADGET_COMPOSITE_OPTIONS();
 
 #define USB_DEBUG_UART_VENDOR_ID	0x1d6b	/* Linux Foundation */
 #define USB_DEBUG_UART_PRODUCT_ID	0x0104	/* Multifunction composite */
+#define USB_DEBUG_UART_RETRY_MS		5000
 
 static struct usb_device_descriptor device_desc = {
 	.bLength =		USB_DT_DEVICE_SIZE,
@@ -53,6 +55,13 @@ static struct usb_gadget_strings *dev_strings[] = {
 static struct usb_function_instance *fi_acm;
 static struct usb_function *f_acm;
 static unsigned char tty_line;
+
+/* Workqueue retry state for gadget registration */
+static struct delayed_work usb_debug_uart_probe_work;
+static atomic_t usb_debug_uart_bound = ATOMIC_INIT(0);
+static atomic_t usb_debug_uart_registered = ATOMIC_INIT(0);
+static atomic_t usb_debug_uart_shutdown = ATOMIC_INIT(0);
+static unsigned int usb_debug_uart_retries;
 
 static int usb_debug_uart_bind_config(struct usb_configuration *c)
 {
@@ -118,6 +127,7 @@ static int usb_debug_uart_bind(struct usb_composite_dev *cdev)
 	usb_composite_overwrite_options(cdev, &coverwrite);
 
 	dev_info(&cdev->gadget->dev, "USB Debug UART gadget ready\n");
+	atomic_set(&usb_debug_uart_bound, 1);
 	return 0;
 
 fail_otg_desc:
@@ -154,15 +164,100 @@ static struct usb_composite_driver usb_debug_uart_driver = {
 	.unbind		= usb_debug_uart_unbind,
 };
 
+/*
+ * The DWC3 UDC may not be registered yet when this initcall runs (in
+ * dual-role mode the gadget core is only initialized after VBUS is
+ * detected).
+ *
+ * Kernel provides a pending mechanism: when UDC doesn't exist,
+ * usb_gadget_probe_driver() adds the driver to a pending list and returns
+ * success (0). When UDC registers later, it automatically binds pending
+ * drivers via check_pending_gadget_drivers().
+ *
+ * However, if the bind callback (usb_debug_uart_bind) fails for any reason,
+ * the pending entry is removed and never retried. To handle this case, we
+ * periodically check if binding succeeded (via the 'bound' flag). If not
+ * bound after USB_DEBUG_UART_RESET_RETRIES attempts, we unregister and
+ * re-register to retry.
+ */
+#define USB_DEBUG_UART_RESET_RETRIES	6	/* 30s (6 * 5s) before reset */
+
+static void usb_debug_uart_probe(struct work_struct *work)
+{
+	int registered, bound;
+
+	/* Check shutdown first to prevent rescheduling during module unload */
+	if (atomic_read(&usb_debug_uart_shutdown))
+		return;
+
+	bound = atomic_read(&usb_debug_uart_bound);
+	registered = atomic_read(&usb_debug_uart_registered);
+
+	pr_debug("USB Debug UART: registered=%d bound=%d retries=%u\n",
+		 registered, bound, usb_debug_uart_retries);
+
+	/* Successfully bound, stop retrying */
+	if (bound)
+		return;
+
+	if (registered) {
+		/*
+		 * Already registered (in pending list or bound attempt in
+		 * progress) but not yet bound. If this persists beyond the
+		 * retry threshold, the bind likely failed and the pending
+		 * entry was removed. Unregister and re-register to retry.
+		 */
+		if (++usb_debug_uart_retries >= USB_DEBUG_UART_RESET_RETRIES) {
+			/*
+			 * Double-check bound status before unregistering to
+			 * avoid race at the 30s boundary where bind might
+			 * have just completed.
+			 */
+			if (!atomic_read(&usb_debug_uart_bound)) {
+				pr_info("USB Debug UART: bind timeout after %us, resetting\n",
+					(USB_DEBUG_UART_RESET_RETRIES *
+					 USB_DEBUG_UART_RETRY_MS) / 1000);
+				usb_composite_unregister(&usb_debug_uart_driver);
+				atomic_set(&usb_debug_uart_registered, 0);
+				usb_debug_uart_retries = 0;
+			}
+		}
+	} else {
+		/* First registration or after reset */
+		if (usb_composite_probe(&usb_debug_uart_driver) == 0) {
+			pr_debug("USB Debug UART: probe succeeded, now pending/bound\n");
+			atomic_set(&usb_debug_uart_registered, 1);
+			usb_debug_uart_retries = 0;
+		} else {
+			pr_debug("USB Debug UART: probe failed, will retry\n");
+		}
+	}
+
+	/* Only reschedule if not shutting down */
+	if (!atomic_read(&usb_debug_uart_shutdown))
+		schedule_delayed_work(&usb_debug_uart_probe_work,
+				      msecs_to_jiffies(USB_DEBUG_UART_RETRY_MS));
+}
+
 static int __init usb_debug_uart_init(void)
 {
-	return usb_composite_probe(&usb_debug_uart_driver);
+	INIT_DELAYED_WORK(&usb_debug_uart_probe_work, usb_debug_uart_probe);
+	schedule_delayed_work(&usb_debug_uart_probe_work, 0);
+
+	return 0;
 }
 subsys_initcall(usb_debug_uart_init);
 
 static void __exit usb_debug_uart_exit(void)
 {
-	usb_composite_unregister(&usb_debug_uart_driver);
+	/* Set shutdown flag first to prevent workqueue rescheduling */
+	atomic_set(&usb_debug_uart_shutdown, 1);
+
+	/* Cancel any pending work and wait for current execution to finish */
+	cancel_delayed_work_sync(&usb_debug_uart_probe_work);
+
+	if (atomic_read(&usb_debug_uart_registered))
+		usb_composite_unregister(&usb_debug_uart_driver);
 }
 module_exit(usb_debug_uart_exit);
 
