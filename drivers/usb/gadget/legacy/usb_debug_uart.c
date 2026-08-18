@@ -15,6 +15,21 @@
 
 #include "u_serial.h"
 
+#ifdef CONFIG_USB_DEBUG_UART
+/* Forward declaration for func_to_acm */
+struct f_acm {
+	struct gserial			port;
+	u8				ctrl_id, data_id;
+	u8				port_num;
+	/* ... (other fields not needed here) */
+};
+
+static inline struct f_acm *func_to_acm(struct usb_function *f)
+{
+	return container_of(f, struct f_acm, port.func);
+}
+#endif
+
 USB_GADGET_COMPOSITE_OPTIONS();
 
 #define USB_DEBUG_UART_VENDOR_ID	0x1d6b	/* Linux Foundation */
@@ -61,7 +76,7 @@ static struct delayed_work usb_debug_uart_probe_work;
 static atomic_t usb_debug_uart_bound = ATOMIC_INIT(0);
 static atomic_t usb_debug_uart_registered = ATOMIC_INIT(0);
 static atomic_t usb_debug_uart_shutdown = ATOMIC_INIT(0);
-static unsigned int usb_debug_uart_retries;
+static atomic_t usb_debug_uart_retries = ATOMIC_INIT(0);
 
 static int usb_debug_uart_bind_config(struct usb_configuration *c)
 {
@@ -88,20 +103,31 @@ static int usb_debug_uart_bind(struct usb_composite_dev *cdev)
 {
 	int status;
 
+	/* Defensive check: ensure previous unbind cleaned up */
+	if (WARN_ON(!IS_ERR_OR_NULL(fi_acm) || !IS_ERR_OR_NULL(f_acm))) {
+		pr_err("USB Debug UART: bind called with stale pointers\n");
+		return -EBUSY;
+	}
+
 	/* Allocate a tty line for console */
 	status = gserial_alloc_line(&tty_line);
-	if (status)
+	if (status) {
+		pr_err("USB Debug UART: gserial_alloc_line failed: %d\n", status);
 		return status;
+	}
 
 	fi_acm = usb_get_function_instance("acm");
 	if (IS_ERR(fi_acm)) {
 		status = PTR_ERR(fi_acm);
+		pr_err("USB Debug UART: usb_get_function_instance failed: %d\n", status);
 		goto fail_get_instance;
 	}
 
 	status = usb_string_ids_tab(cdev, strings_dev);
-	if (status < 0)
+	if (status < 0) {
+		pr_err("USB Debug UART: usb_string_ids_tab failed: %d\n", status);
 		goto fail_string_ids;
+	}
 
 	device_desc.iManufacturer = strings_dev[USB_GADGET_MANUFACTURER_IDX].id;
 	device_desc.iProduct = strings_dev[USB_GADGET_PRODUCT_IDX].id;
@@ -112,6 +138,7 @@ static int usb_debug_uart_bind(struct usb_composite_dev *cdev)
 		usb_desc = usb_otg_descriptor_alloc(cdev->gadget);
 		if (!usb_desc) {
 			status = -ENOMEM;
+			pr_err("USB Debug UART: OTG descriptor alloc failed\n");
 			goto fail_string_ids;
 		}
 		usb_otg_descriptor_init(cdev->gadget, usb_desc);
@@ -121,8 +148,10 @@ static int usb_debug_uart_bind(struct usb_composite_dev *cdev)
 
 	status = usb_add_config(cdev, &debug_uart_config_driver,
 				usb_debug_uart_bind_config);
-	if (status < 0)
+	if (status < 0) {
+		pr_err("USB Debug UART: usb_add_config failed: %d\n", status);
 		goto fail_otg_desc;
+	}
 
 	usb_composite_overwrite_options(cdev, &coverwrite);
 
@@ -135,6 +164,7 @@ fail_otg_desc:
 	otg_desc[0] = NULL;
 fail_string_ids:
 	usb_put_function_instance(fi_acm);
+	fi_acm = NULL;
 fail_get_instance:
 	gserial_free_line(tty_line);
 	return status;
@@ -142,16 +172,42 @@ fail_get_instance:
 
 static int usb_debug_uart_unbind(struct usb_composite_dev *cdev)
 {
-	if (!IS_ERR_OR_NULL(f_acm))
+	pr_info("USB Debug UART: unbind called\n");
+
+	/* Reset bound flag to allow workqueue retry if needed */
+	atomic_set(&usb_debug_uart_bound, 0);
+
+#ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * Explicitly disarm to free DMA resources (16KB buffer + TRB).
+	 * The composite_unbind path calls function->unbind (acm_unbind),
+	 * not function->disable (acm_disable), so disarm is never called.
+	 */
+	if (f_acm && !IS_ERR_OR_NULL(f_acm)) {
+		struct f_acm *acm = func_to_acm(f_acm);
+		if (acm && acm->port.in) {
+			pr_debug("USB Debug UART: explicit disarm before unbind\n");
+			dwc3_gadget_debug_uart_disarm(acm->port.in);
+		}
+	}
+#endif
+
+	/* Clean up function resources and clear pointers */
+	if (!IS_ERR_OR_NULL(f_acm)) {
 		usb_put_function(f_acm);
-	if (!IS_ERR_OR_NULL(fi_acm))
+		f_acm = NULL;
+	}
+	if (!IS_ERR_OR_NULL(fi_acm)) {
 		usb_put_function_instance(fi_acm);
+		fi_acm = NULL;
+	}
 
 	gserial_free_line(tty_line);
 
 	kfree(otg_desc[0]);
 	otg_desc[0] = NULL;
 
+	pr_debug("USB Debug UART: unbind complete, resources freed\n");
 	return 0;
 }
 
@@ -194,7 +250,7 @@ static void usb_debug_uart_probe(struct work_struct *work)
 	registered = atomic_read(&usb_debug_uart_registered);
 
 	pr_debug("USB Debug UART: registered=%d bound=%d retries=%u\n",
-		 registered, bound, usb_debug_uart_retries);
+		 registered, bound, atomic_read(&usb_debug_uart_retries));
 
 	/* Successfully bound, stop retrying */
 	if (bound)
@@ -207,7 +263,7 @@ static void usb_debug_uart_probe(struct work_struct *work)
 		 * retry threshold, the bind likely failed and the pending
 		 * entry was removed. Unregister and re-register to retry.
 		 */
-		if (++usb_debug_uart_retries >= USB_DEBUG_UART_RESET_RETRIES) {
+		if (atomic_inc_return(&usb_debug_uart_retries) >= USB_DEBUG_UART_RESET_RETRIES) {
 			/*
 			 * Double-check bound status before unregistering to
 			 * avoid race at the 30s boundary where bind might
@@ -219,7 +275,7 @@ static void usb_debug_uart_probe(struct work_struct *work)
 					 USB_DEBUG_UART_RETRY_MS) / 1000);
 				usb_composite_unregister(&usb_debug_uart_driver);
 				atomic_set(&usb_debug_uart_registered, 0);
-				usb_debug_uart_retries = 0;
+				atomic_set(&usb_debug_uart_retries, 0);
 			}
 		}
 	} else {
@@ -227,7 +283,7 @@ static void usb_debug_uart_probe(struct work_struct *work)
 		if (usb_composite_probe(&usb_debug_uart_driver) == 0) {
 			pr_debug("USB Debug UART: probe succeeded, now pending/bound\n");
 			atomic_set(&usb_debug_uart_registered, 1);
-			usb_debug_uart_retries = 0;
+			atomic_set(&usb_debug_uart_retries, 0);
 		} else {
 			pr_debug("USB Debug UART: probe failed, will retry\n");
 		}
