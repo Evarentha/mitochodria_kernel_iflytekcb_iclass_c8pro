@@ -249,7 +249,7 @@ static void usb_debug_uart_probe(struct work_struct *work)
 	bound = atomic_read(&usb_debug_uart_bound);
 	registered = atomic_read(&usb_debug_uart_registered);
 
-	pr_debug("USB Debug UART: registered=%d bound=%d retries=%u\n",
+	pr_emerg("USB_UART: reg=%d bnd=%d ret=%u\n",
 		 registered, bound, atomic_read(&usb_debug_uart_retries));
 
 	/* Successfully bound, stop retrying */
@@ -280,12 +280,13 @@ static void usb_debug_uart_probe(struct work_struct *work)
 		}
 	} else {
 		/* First registration or after reset */
-		if (usb_composite_probe(&usb_debug_uart_driver) == 0) {
-			pr_debug("USB Debug UART: probe succeeded, now pending/bound\n");
+		int ret = usb_composite_probe(&usb_debug_uart_driver);
+		if (ret == 0) {
+			pr_emerg("USB_UART_PROBE_OK\n");
 			atomic_set(&usb_debug_uart_registered, 1);
 			atomic_set(&usb_debug_uart_retries, 0);
 		} else {
-			pr_debug("USB Debug UART: probe failed, will retry\n");
+			pr_emerg("USB_UART_PROBE_FAIL=%d\n", ret);
 		}
 	}
 
@@ -297,8 +298,10 @@ static void usb_debug_uart_probe(struct work_struct *work)
 
 static int __init usb_debug_uart_init(void)
 {
+	pr_emerg("USB_DEBUG_UART_INIT\n");
 	INIT_DELAYED_WORK(&usb_debug_uart_probe_work, usb_debug_uart_probe);
 	schedule_delayed_work(&usb_debug_uart_probe_work, 0);
+	pr_emerg("USB_DEBUG_UART_WQ_OK\n");
 
 	return 0;
 }
