@@ -161,6 +161,23 @@ static int usb_debug_uart_bind(struct usb_composite_dev *cdev)
 
 	dev_info(&cdev->gadget->dev, "USB Debug UART gadget ready\n");
 	atomic_set(&usb_debug_uart_bound, 1);
+
+	/*
+	 * Arm the panic TX path here: bind runs in process context
+	 * (no cdev->lock held), so GFP_KERNEL allocation is legal.
+	 * Doing this in set_alt (which runs under cdev->lock spinlock)
+	 * caused SET_CONFIGURATION to stall and the host to report
+	 * "can't set config #1, error -32 (EPIPE)".
+	 */
+	if (f_acm && !IS_ERR_OR_NULL(f_acm)) {
+		struct f_acm *acm = func_to_acm(f_acm);
+		if (acm && acm->port.in) {
+			if (dwc3_gadget_debug_uart_arm(acm->port.in))
+				pr_err("USB Debug UART: panic TX arm failed\n");
+			else
+				pr_emerg("USB_UART_ARM_OK\n");
+		}
+	}
 	return 0;
 
 fail_otg_desc:

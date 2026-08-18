@@ -1533,13 +1533,6 @@ int gserial_connect(struct gserial *gser, u8 port_num)
 	status = gs_console_connect(port_num);
 	spin_unlock_irqrestore(&port->port_lock, flags);
 
-#ifdef CONFIG_USB_DEBUG_UART
-	if (status == 0 && port_num == 0 && gser->in) {
-		extern int dwc3_gadget_debug_uart_arm(struct usb_ep *ep);
-		dwc3_gadget_debug_uart_arm(gser->in);
-	}
-#endif
-
 	return status;
 
 fail_out:
@@ -1584,13 +1577,6 @@ void gserial_disconnect(struct gserial *gser)
 	/* disable endpoints, aborting down any active I/O */
 	usb_ep_disable(gser->out);
 	usb_ep_disable(gser->in);
-
-#ifdef CONFIG_USB_DEBUG_UART
-	if (port->port_num == 0 && gser->in) {
-		extern void dwc3_gadget_debug_uart_disarm(struct usb_ep *ep);
-		dwc3_gadget_debug_uart_disarm(gser->in);
-	}
-#endif
 
 	/* finally, free any unused/unusable I/O buffers */
 	spin_lock_irqsave(&port->port_lock, flags);

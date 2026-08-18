@@ -3503,8 +3503,10 @@ int dwc3_gadget_debug_uart_arm(struct usb_ep *ep)
 	return 0;
 
 fail_trb:
+	pr_err("usb_debug_uart: DMA TRB alloc failed\n");
 	dma_free_coherent(dwc->sysdev, DWC3_DEBUG_UART_BUF_SIZE, buf, buf_dma);
 fail_buf:
+	pr_err("usb_debug_uart: DMA buffer alloc failed\n");
 	atomic_set(&dwc3_debug_uart_ctx.armed, 0);
 	return -ENOMEM;
 }
