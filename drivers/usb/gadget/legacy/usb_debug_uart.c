@@ -16,6 +16,10 @@
 #include "u_serial.h"
 
 #ifdef CONFIG_USB_DEBUG_UART
+#include "../../dwc3/gadget.h"
+#endif
+
+#ifdef CONFIG_USB_DEBUG_UART
 /* Forward declaration for func_to_acm */
 struct f_acm {
 	struct gserial			port;
