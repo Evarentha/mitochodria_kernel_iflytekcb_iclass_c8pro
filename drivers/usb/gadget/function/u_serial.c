@@ -1136,6 +1136,8 @@ static int gs_console_connect(int port_num)
 	}
 
 	port = ports[port_num].port;
+	if (!port)
+		return -ENXIO;
 	ep = port->port_usb->in;
 	if (!info->console_req) {
 		info->console_req = gs_request_new(ep);
@@ -1370,13 +1372,15 @@ static void gserial_console_exit(void)
 	}
 	info->console_req = NULL;
 	console_ep = NULL;
+	/* 失效 console index，防止 unbind 后其他 gserial 用户误附加 */
+	gserial_cons.index = -1;
 #endif
 	unregister_console(&gserial_cons);
-	if (!IS_ERR_OR_NULL(info->console_thread)) {
+	if (!IS_ERR_OR_NULL(info->console_thread))
 		kthread_stop(info->console_thread);
-		/* 置 NULL，使 rebind 时 gs_console_setup() 能重新初始化 */
-		info->console_thread = NULL;
-	}
+	/* 无条件置 NULL：rebind 时 gs_console_setup() 重新初始化，
+	 * 同时清除 kthread_create 失败时残留的 ERR_PTR */
+	info->console_thread = NULL;
 	gs_buf_free(&info->con_buf);
 }
 

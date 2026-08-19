@@ -279,6 +279,7 @@ static struct usb_composite_driver usb_debug_uart_driver = {
 static void usb_debug_uart_probe(struct work_struct *work)
 {
 	int registered, bound;
+	int ret;
 
 	/* Check shutdown first to prevent rescheduling during module unload */
 	if (atomic_read(&usb_debug_uart_shutdown))
@@ -318,7 +319,7 @@ static void usb_debug_uart_probe(struct work_struct *work)
 		}
 	} else {
 		/* First registration or after reset */
-		int ret = usb_composite_probe(&usb_debug_uart_driver);
+		ret = usb_composite_probe(&usb_debug_uart_driver);
 		if (ret == 0) {
 			pr_emerg("USB_UART_PROBE_OK\n");
 			atomic_set(&usb_debug_uart_registered, 1);
