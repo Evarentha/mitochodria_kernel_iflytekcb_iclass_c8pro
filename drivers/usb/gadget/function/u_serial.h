@@ -68,4 +68,10 @@ void gserial_disconnect(struct gserial *);
 int gser_bind_config(struct usb_configuration *c, u8 port_num);
 int obex_bind_config(struct usb_configuration *c, u8 port_num);
 
+#ifdef CONFIG_U_SERIAL_CONSOLE
+/* gserial console, defined in u_serial.c */
+struct console;
+extern struct console gserial_cons;
+#endif
+
 #endif /* __U_SERIAL_H */

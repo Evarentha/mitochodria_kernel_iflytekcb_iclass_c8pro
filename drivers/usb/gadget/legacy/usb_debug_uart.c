@@ -12,6 +12,7 @@
 #include <linux/module.h>
 #include <linux/tty.h>
 #include <linux/workqueue.h>
+#include <linux/console.h>
 
 #include "u_serial.h"
 
@@ -73,7 +74,6 @@ static struct usb_gadget_strings *dev_strings[] = {
 
 static struct usb_function_instance *fi_acm;
 static struct usb_function *f_acm;
-static unsigned char tty_line;
 
 /* Workqueue retry state for gadget registration */
 static struct delayed_work usb_debug_uart_probe_work;
@@ -113,13 +113,14 @@ static int usb_debug_uart_bind(struct usb_composite_dev *cdev)
 		return -EBUSY;
 	}
 
-	/* Allocate a tty line for console */
-	status = gserial_alloc_line(&tty_line);
-	if (status) {
-		pr_err("USB Debug UART: gserial_alloc_line failed: %d\n", status);
-		return status;
-	}
-
+	/*
+	 * Do NOT allocate a gserial line here: the ACM function instance
+	 * (usb_get_function_instance("acm")) allocates its own line in
+	 * acm_alloc_instance() and owns it for its lifetime. A second
+	 * allocation here would push the ACM instance onto port 1 while
+	 * the console index stays at its default, breaking
+	 * gs_console_connect() and stalling SET_CONFIGURATION.
+	 */
 	fi_acm = usb_get_function_instance("acm");
 	if (IS_ERR(fi_acm)) {
 		status = PTR_ERR(fi_acm);
@@ -176,6 +177,19 @@ static int usb_debug_uart_bind(struct usb_composite_dev *cdev)
 				pr_err("USB Debug UART: panic TX arm failed\n");
 			else
 				pr_emerg("USB_UART_ARM_OK\n");
+
+#ifdef CONFIG_U_SERIAL_CONSOLE
+			/*
+			 * Explicitly set the console index to our allocated port.
+			 * gserial_cons is a global shared by all gserial users (f_serial,
+			 * f_obex, etc). If another gadget allocates a line after us, its
+			 * gserial_alloc_line() would overwrite the index. By setting it here
+			 * at the end of our bind, we ensure gs_console_connect() sees the
+			 * correct port number and doesn't reject with -ENXIO.
+			 */
+			gserial_cons.index = acm->port_num;
+			pr_debug("USB Debug UART: console index set to %u\n", acm->port_num);
+#endif
 		}
 	}
 	return 0;
@@ -187,7 +201,6 @@ fail_string_ids:
 	usb_put_function_instance(fi_acm);
 	fi_acm = NULL;
 fail_get_instance:
-	gserial_free_line(tty_line);
 	return status;
 }
 
@@ -222,8 +235,6 @@ static int usb_debug_uart_unbind(struct usb_composite_dev *cdev)
 		usb_put_function_instance(fi_acm);
 		fi_acm = NULL;
 	}
-
-	gserial_free_line(tty_line);
 
 	kfree(otg_desc[0]);
 	otg_desc[0] = NULL;

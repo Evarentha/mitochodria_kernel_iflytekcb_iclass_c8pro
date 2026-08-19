@@ -460,8 +460,12 @@ static int acm_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 				return -EINVAL;
 			}
 		}
-		if (gserial_connect(&acm->port, acm->port_num))
+		if (gserial_connect(&acm->port, acm->port_num)) {
+			dev_err(&cdev->gadget->dev,
+				"acm ttyGS%d: gserial_connect failed\n",
+				acm->port_num);
 			return -EIO;
+		}
 
 	} else
 		return -EINVAL;
