@@ -184,6 +184,15 @@ void panic(const char *fmt, ...)
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
+#ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * 提前切换 USB debug UART 到轮询路径，确保 panic 首条消息与
+	 * 栈回溯（均在 kmsg_dump 之前输出）也能可靠传输到 Host。
+	 * panic_mode 仅影响 gs_console_write 的分支选择，与
+	 * kmsg_dump/crash_kexec/pstore 无关，提前调用安全。
+	 */
+	usb_debug_uart_panic_enter();
+#endif
 	pr_emerg("Kernel panic - not syncing: %s\n", buf);
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 	/*
@@ -231,9 +240,6 @@ void panic(const char *fmt, ...)
 	/* Call flush even twice. It tries harder with a single online CPU */
 	printk_safe_flush_on_panic();
 	kmsg_dump(KMSG_DUMP_PANIC);
-#ifdef CONFIG_USB_DEBUG_UART
-	usb_debug_uart_panic_enter();
-#endif
 #ifdef CONFIG_PANIC_DISK_STORE
 	panic_disk_store_write();
 #endif
