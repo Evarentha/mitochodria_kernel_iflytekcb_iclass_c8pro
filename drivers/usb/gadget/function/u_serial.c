@@ -1176,6 +1176,7 @@ static void gs_console_disconnect(struct usb_ep *ep)
 {
 	struct gscons_info *info = &gscons_info;
 	struct usb_request *req;
+	unsigned long flags;
 #ifdef CONFIG_USB_DEBUG_UART
 	/*
 	 * 非 console（非 debug UART）端口断开：不碰 console 资源，
@@ -1188,6 +1189,16 @@ static void gs_console_disconnect(struct usb_ep *ep)
 	gs_request_free(req, ep);
 	info->console_req = NULL;
 #ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * 拔线后清除 con_buf 环形缓冲残留。buf_get 在拔线后冻结、
+	 * buf_put 仍可能推进，重连时 thread 从旧读位置恢复会重复读取
+	 * 环绕区造成乱码。归零指针使重连后的输出从干净起点开始。
+	 */
+	spin_lock_irqsave(&info->con_lock, flags);
+	info->con_buf.buf_get = info->con_buf.buf_buf;
+	info->con_buf.buf_put = info->con_buf.buf_buf;
+	spin_unlock_irqrestore(&info->con_lock, flags);
+
 	/* 仅当 console 附加状态存在时恢复 loglevel */
 	if (console_attached) {
 		console_loglevel = saved_console_loglevel;
@@ -1259,13 +1270,16 @@ static int gs_console_setup(struct console *co, char *options)
 	struct gscons_info *info = &gscons_info;
 	int status;
 
+#ifdef CONFIG_USB_DEBUG_UART
 	/*
 	 * setup 可能被 gserial_console_init() 和 register_console() 各调用
 	 * 一次（无 console= 参数时 register_console 也会调用 setup）。
 	 * 幂等：thread 已有效则直接返回，避免 con_buf 泄漏和双线程。
+	 * 非 debug 构建没有预先调用 setup，无重复调用风险，保持原逻辑。
 	 */
 	if (!IS_ERR_OR_NULL(info->console_thread))
 		return 0;
+#endif
 
 	info->port = NULL;
 	info->console_req = NULL;
@@ -1308,12 +1322,17 @@ static void gs_console_write(struct console *co,
 	gs_buf_put(&info->con_buf, buf, count);
 	spin_unlock_irqrestore(&info->con_lock, flags);
 
+#ifdef CONFIG_USB_DEBUG_UART
 	/*
 	 * thread 可能不存在（例如 console 已注册但 setup 未被调用，
 	 * 或 gs_console_setup() 失败）。判空防止 NULL 解引用。
+	 * 非 debug 构建保留原逻辑。
 	 */
 	if (!IS_ERR_OR_NULL(info->console_thread))
 		wake_up_process(info->console_thread);
+#else
+	wake_up_process(info->console_thread);
+#endif
 }
 
 static struct tty_driver *gs_console_device(struct console *co, int *index)
@@ -1618,19 +1637,22 @@ int gserial_connect(struct gserial *gser, u8 port_num)
 	status = gs_console_connect(port_num);
 	spin_unlock_irqrestore(&port->port_lock, flags);
 
+#ifdef CONFIG_USB_DEBUG_UART
 	/*
-	 * Console attachment is best-effort: a port that is not the
-	 * designated console (gserial_cons.index) must not break the
-	 * serial data path. gs_console_connect() returns -ENXIO for
-	 * non-console ports; swallow it so f_serial/f_obex/configfs
-	 * ACM still work when U_SERIAL_CONSOLE is enabled without
-	 * USB_DEBUG_UART (where gserial_cons.index stays -1).
+	 * Console attachment is best-effort for the debug UART build:
+	 * a port that is not the designated console (gserial_cons.index)
+	 * must not break the serial data path. gs_console_connect()
+	 * returns -ENXIO for non-console ports; swallow it so
+	 * f_serial/f_obex/configfs ACM keep working. Without
+	 * CONFIG_USB_DEBUG_UART this check does not exist and the
+	 * original behaviour is preserved.
 	 */
 	if (status < 0) {
 		pr_debug("gserial_connect: console attach failed (%d), "
 			 "continuing without console\n", status);
 		status = 0;
 	}
+#endif
 
 	return status;
 
