@@ -1064,6 +1064,12 @@ static struct tty_driver *gs_tty_driver;
 static struct gscons_info gscons_info;
 struct console gserial_cons;
 
+#ifdef CONFIG_USB_DEBUG_UART
+static int saved_console_loglevel;
+static bool console_attached;
+static struct usb_ep *console_ep;
+#endif
+
 static struct usb_request *gs_request_new(struct usb_ep *ep)
 {
 	struct usb_request *req = usb_ep_alloc_request(ep, GFP_ATOMIC);
@@ -1118,8 +1124,14 @@ static int gs_console_connect(int port_num)
 	struct usb_ep *ep;
 
 	if (port_num != gserial_cons.index) {
+#ifdef CONFIG_USB_DEBUG_UART
+		/* 多用户共存时这是正常情况（非 console 端口），保持静默 */
+		pr_debug("%s: port num [%d] is not support console\n",
+			 __func__, port_num);
+#else
 		pr_err("%s: port num [%d] is not support console\n",
 		       __func__, port_num);
+#endif
 		return -ENXIO;
 	}
 
@@ -1136,6 +1148,24 @@ static int gs_console_connect(int port_num)
 	spin_lock(&info->con_lock);
 	info->req_busy = 0;
 	spin_unlock(&info->con_lock);
+#ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * Only USB Debug UART reaches this point: gserial_cons.index is set
+	 * to the ACM port at bind time, other gserial users fail the
+	 * port_num != gserial_cons.index check above with -ENXIO.
+	 *
+	 * Wake the console thread so buffered output (CON_PRINTBUFFER
+	 * replay, early pr_emerg) is flushed immediately on connect, and
+	 * raise the console loglevel so all kernel logs stream to ttyACM0.
+	 * The thread may not exist if gs_console_setup() failed earlier.
+	 */
+	if (!IS_ERR_OR_NULL(info->console_thread))
+		wake_up_process(info->console_thread);
+	console_ep = port->port_usb->in;
+	saved_console_loglevel = console_loglevel;
+	console_loglevel = 7;
+	console_attached = true;
+#endif
 	pr_vdebug("port[%d] console connect!\n", port_num);
 	return 0;
 }
@@ -1143,10 +1173,26 @@ static int gs_console_connect(int port_num)
 static void gs_console_disconnect(struct usb_ep *ep)
 {
 	struct gscons_info *info = &gscons_info;
-	struct usb_request *req = info->console_req;
-
+	struct usb_request *req;
+#ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * 非 console（非 debug UART）端口断开：不碰 console 资源，
+	 * 避免误释放 debug UART 的 console_req 或误恢复 loglevel。
+	 */
+	if (ep != console_ep)
+		return;
+#endif
+	req = info->console_req;
 	gs_request_free(req, ep);
 	info->console_req = NULL;
+#ifdef CONFIG_USB_DEBUG_UART
+	/* 仅当 console 附加状态存在时恢复 loglevel */
+	if (console_attached) {
+		console_loglevel = saved_console_loglevel;
+		console_attached = false;
+	}
+	console_ep = NULL;
+#endif
 }
 
 static int gs_console_thread(void *data)
@@ -1211,6 +1257,14 @@ static int gs_console_setup(struct console *co, char *options)
 	struct gscons_info *info = &gscons_info;
 	int status;
 
+	/*
+	 * setup 可能被 gserial_console_init() 和 register_console() 各调用
+	 * 一次（无 console= 参数时 register_console 也会调用 setup）。
+	 * 幂等：thread 已有效则直接返回，避免 con_buf 泄漏和双线程。
+	 */
+	if (!IS_ERR_OR_NULL(info->console_thread))
+		return 0;
+
 	info->port = NULL;
 	info->console_req = NULL;
 	info->req_busy = 0;
@@ -1252,7 +1306,12 @@ static void gs_console_write(struct console *co,
 	gs_buf_put(&info->con_buf, buf, count);
 	spin_unlock_irqrestore(&info->con_lock, flags);
 
-	wake_up_process(info->console_thread);
+	/*
+	 * thread 可能不存在（例如 console 已注册但 setup 未被调用，
+	 * 或 gs_console_setup() 失败）。判空防止 NULL 解引用。
+	 */
+	if (!IS_ERR_OR_NULL(info->console_thread))
+		wake_up_process(info->console_thread);
 }
 
 static struct tty_driver *gs_console_device(struct console *co, int *index)
@@ -1272,7 +1331,7 @@ struct console gserial_cons = {
 	.device =	gs_console_device,
 	.setup =	gs_console_setup,
 #ifdef CONFIG_USB_DEBUG_UART
-	.flags =	CON_ENABLED,
+	.flags =	CON_ENABLED | CON_PRINTBUFFER,
 #else
 	.flags =	CON_PRINTBUFFER,
 #endif
@@ -1293,9 +1352,31 @@ static void gserial_console_exit(void)
 {
 	struct gscons_info *info = &gscons_info;
 
+#ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * unbind/卸载路径可能没有经过 gs_console_disconnect（例如
+	 * 30s 重置或模块卸载时 USB 未连接）。恢复 loglevel 并清理
+	 * 附加状态，防止 loglevel 卡在 7 或资源泄漏。
+	 */
+	if (console_attached) {
+		console_loglevel = saved_console_loglevel;
+		console_attached = false;
+	}
+	if (info->console_req && console_ep) {
+		/* 若 req 仍在端点队列（异常 unbind 路径），先出队再释放，
+		 * 避免 DWC3 仍引用已释放的 request */
+		usb_ep_dequeue(console_ep, info->console_req);
+		gs_request_free(info->console_req, console_ep);
+	}
+	info->console_req = NULL;
+	console_ep = NULL;
+#endif
 	unregister_console(&gserial_cons);
-	if (!IS_ERR_OR_NULL(info->console_thread))
+	if (!IS_ERR_OR_NULL(info->console_thread)) {
 		kthread_stop(info->console_thread);
+		/* 置 NULL，使 rebind 时 gs_console_setup() 能重新初始化 */
+		info->console_thread = NULL;
+	}
 	gs_buf_free(&info->con_buf);
 }
 
@@ -1532,6 +1613,20 @@ int gserial_connect(struct gserial *gser, u8 port_num)
 
 	status = gs_console_connect(port_num);
 	spin_unlock_irqrestore(&port->port_lock, flags);
+
+	/*
+	 * Console attachment is best-effort: a port that is not the
+	 * designated console (gserial_cons.index) must not break the
+	 * serial data path. gs_console_connect() returns -ENXIO for
+	 * non-console ports; swallow it so f_serial/f_obex/configfs
+	 * ACM still work when U_SERIAL_CONSOLE is enabled without
+	 * USB_DEBUG_UART (where gserial_cons.index stays -1).
+	 */
+	if (status < 0) {
+		pr_debug("gserial_connect: console attach failed (%d), "
+			 "continuing without console\n", status);
+		status = 0;
+	}
 
 	return status;
 

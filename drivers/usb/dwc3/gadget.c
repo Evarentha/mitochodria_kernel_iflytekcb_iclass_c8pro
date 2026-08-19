@@ -3579,11 +3579,12 @@ int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
 	memcpy(dwc3_debug_uart_ctx.buf, buf, len);
 	wmb();
 
-	/* Prepare TRB */
+	/* Prepare TRB (single TRB transfer: mark it as last in the chain) */
 	trb->bpl = lower_32_bits(dwc3_debug_uart_ctx.buf_dma);
 	trb->bph = upper_32_bits(dwc3_debug_uart_ctx.buf_dma);
 	trb->size = len;
-	trb->ctrl = DWC3_TRBCTL_NORMAL | DWC3_TRB_CTRL_HWO | DWC3_TRB_CTRL_IOC;
+	trb->ctrl = DWC3_TRBCTL_NORMAL | DWC3_TRB_CTRL_HWO |
+		    DWC3_TRB_CTRL_IOC | DWC3_TRB_CTRL_LST;
 	wmb();
 
 	/* Issue STARTTRANSFER without lock */

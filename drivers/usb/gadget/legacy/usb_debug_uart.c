@@ -91,8 +91,10 @@ static int usb_debug_uart_bind_config(struct usb_configuration *c)
 		return PTR_ERR(f_acm);
 
 	status = usb_add_function(c, f_acm);
-	if (status < 0)
+	if (status < 0) {
 		usb_put_function(f_acm);
+		f_acm = NULL;	/* 防止 fail 路径 double put */
+	}
 
 	return status;
 }
@@ -195,6 +197,10 @@ static int usb_debug_uart_bind(struct usb_composite_dev *cdev)
 	return 0;
 
 fail_otg_desc:
+	if (!IS_ERR_OR_NULL(f_acm)) {
+		usb_put_function(f_acm);
+		f_acm = NULL;
+	}
 	kfree(otg_desc[0]);
 	otg_desc[0] = NULL;
 fail_string_ids:
