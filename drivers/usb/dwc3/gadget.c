@@ -3463,6 +3463,7 @@ static struct {
 	struct dwc3_trb		*trb;
 	dma_addr_t		trb_dma;
 	atomic_t		panic_active;
+	atomic_t		panic_write_depth;
 	atomic_t		armed;
 } dwc3_debug_uart_ctx;
 
@@ -3552,9 +3553,25 @@ int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
 	int ret;
 	ktime_t start;
 
-	/* Single panic writer, no reentrancy */
-	if (atomic_xchg(&dwc3_debug_uart_ctx.panic_active, 1))
+	/*
+	 * 递归检测：防止 panic_write 内部意外触发 printk 导致无限递归。
+	 * panic 模式下 printk 应该直接输出不格式化，但这是额外保险。
+	 * 
+	 * 注意：递归时不清零 panic_active，因为外层调用仍持有锁。
+	 */
+	if (atomic_inc_return(&dwc3_debug_uart_ctx.panic_write_depth) > 1) {
+		atomic_dec(&dwc3_debug_uart_ctx.panic_write_depth);
 		return -EBUSY;
+	}
+
+	/*
+	 * 并发保护：确保同时只有一个 CPU 执行 panic_write。
+	 * 清零机制允许后续 printk 顺序调用（panic 有几十条日志）。
+	 */
+	if (atomic_xchg(&dwc3_debug_uart_ctx.panic_active, 1)) {
+		atomic_dec(&dwc3_debug_uart_ctx.panic_write_depth);
+		return -EBUSY;
+	}
 
 	/* Check preconditions without locks */
 	if (!atomic_read(&dwc3_debug_uart_ctx.armed))
@@ -3628,7 +3645,19 @@ int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
 out_abort:
 	ret = -ETIMEDOUT;
 out:
-	/* Leave panic_active set to prevent reentry */
+	/*
+	 * 清零 panic_active，允许后续 panic printk 继续调用。
+	 * 原设计的"永久保持"导致只发送第一条消息，后续全部 -EBUSY。
+	 * panic 场景下有几十条日志（call trace 等），必须支持多次调用。
+	 *
+	 * 并发防护：atomic_xchg 确保同时只有一个 CPU 执行。
+	 * 递归防护：panic_write_depth 检测同一 CPU 的递归调用。
+	 *
+	 * disarm 防护：保留 panic_active 的 atomic_read 检查（3521 行），
+	 * 但 panic 后 disarm 不会被调用（unbind 路径不可达）。
+	 */
+	atomic_dec(&dwc3_debug_uart_ctx.panic_write_depth);
+	atomic_set(&dwc3_debug_uart_ctx.panic_active, 0);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(dwc3_gadget_debug_uart_panic_write);
