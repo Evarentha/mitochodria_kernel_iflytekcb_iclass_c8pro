@@ -885,6 +885,15 @@ static void gs_close(struct tty_struct *tty, struct file *file)
 	struct gs_port *port = tty->driver_data;
 	struct gserial	*gser;
 
+#ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * tty_release() 在 gs_open() 失败（如 -EPERM）后也会调用 close，
+	 * 此时 driver_data 从未被设置（NULL）。防御空指针崩溃。
+	 */
+	if (!port)
+		return;
+#endif
+
 	spin_lock_irq(&port->port_lock);
 
 	if (port->port.count != 1) {
