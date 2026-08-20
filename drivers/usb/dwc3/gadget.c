@@ -3518,12 +3518,38 @@ void dwc3_gadget_debug_uart_disarm(struct usb_ep *ep)
 	struct dwc3_ep *dep = to_dwc3_ep(ep);
 	struct dwc3 *dwc = dep->dwc;
 
-	/* Not armed or already in panic mode - don't free */
-	if (atomic_read(&dwc3_debug_uart_ctx.panic_active))
+	/*
+	 * 一旦进入 panic 模式，资源必须保留供 panic_write 轮询使用。
+	 * 检查 sticky 标志 usb_debug_uart_panicking()（由 panic_enter
+	 * 设置且永不清零），而不是 per-write 的 panic_active：
+	 *
+	 * 原实现检查 panic_active 存在 TOCTOU 竞态：
+	 *   T1: panic_write#1 完成, panic_active 清零
+	 *   T2: disarm 读到 0, 通过检查, 开始释放 DMA
+	 *   T3: 新 printk 触发 panic_write#2, atomic_xchg 成功
+	 *   T4: disarm 释放 buf/trb, panic_write#2 访问已释放内存 (UAF)
+	 *
+	 * panic_mode 在首次 panic_write 之前就设置（panic.c 在
+	 * pr_emerg 前调用 usb_debug_uart_panic_enter），且永不清零，
+	 * 因此检查它可彻底关闭上述窗口。panic 后 unbind 路径本不可达，
+	 * 此检查是防御性保护。
+	 */
+	if (usb_debug_uart_panicking())
 		return;
 
+	/* 并发 disarm 保护：atomic_cmpxchg 确保只有一个调用者执行释放 */
 	if (atomic_cmpxchg(&dwc3_debug_uart_ctx.armed, 1, 0) != 1)
 		return;
+
+	/*
+	 * 双重保险：armed 已清 0 后，若仍有 panic_write 在飞行（极端
+	 * 时序下 panic_mode 尚未被本 CPU 看见），恢复 armed 并延迟释放，
+	 * 交由下次 unbind 重试。
+	 */
+	if (atomic_read(&dwc3_debug_uart_ctx.panic_active)) {
+		atomic_set(&dwc3_debug_uart_ctx.armed, 1);
+		return;
+	}
 
 	/* Free resources */
 	if (dwc3_debug_uart_ctx.trb)
@@ -3550,6 +3576,7 @@ int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
 	struct dwc3_ep *dep = dwc3_debug_uart_ctx.dep;
 	struct dwc3_trb *trb = dwc3_debug_uart_ctx.trb;
 	u32 cmd;
+	u32 res_idx = 0;
 	int ret;
 	ktime_t start;
 
@@ -3625,6 +3652,8 @@ int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
 	if (cmd & DWC3_DEPCMD_CMDACT)
 		goto out_abort;
 
+	res_idx = DWC3_DEPCMD_GET_RSC_IDX(cmd);
+
 	/* Poll TRB ownership */
 	start = ktime_get();
 	do {
@@ -3636,8 +3665,27 @@ int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
 		cpu_relax();
 	} while (ktime_before(ktime_get(), ktime_add_ms(start, 100)));
 
-	if (trb->ctrl & DWC3_TRB_CTRL_HWO)
+	if (trb->ctrl & DWC3_TRB_CTRL_HWO) {
+		/*
+		 * 传输未完成（Host 断开/停止读取/设备错误）。控制器仍持有
+		 * 该 TRB 与端点资源，若不清理，后续 panic_write 的
+		 * STARTTRANSFER 会被控制器拒绝（CMDACT 卡死或状态异常），
+		 * 导致剩余日志全部丢失。此处尽力发送 ENDTRANSFER 终止
+		 * 卡住的传输，释放端点，让下一次 panic_write 可以重新开始。
+		 */
+		cmd = DWC3_DEPCMD_ENDTRANSFER;
+		cmd |= DWC3_DEPCMD_CMDIOC;
+		cmd |= DWC3_DEPCMD_PARAM(res_idx);
+		dwc3_writel(dep->regs, DWC3_DEPCMD, cmd);
+		start = ktime_get();
+		do {
+			cmd = dwc3_readl(dep->regs, DWC3_DEPCMD);
+			if (!(cmd & DWC3_DEPCMD_CMDACT))
+				break;
+			cpu_relax();
+		} while (ktime_before(ktime_get(), ktime_add_ms(start, 10)));
 		goto out_abort;
+	}
 
 	ret = 0;
 	goto out;
@@ -3653,8 +3701,10 @@ out:
 	 * 并发防护：atomic_xchg 确保同时只有一个 CPU 执行。
 	 * 递归防护：panic_write_depth 检测同一 CPU 的递归调用。
 	 *
-	 * disarm 防护：保留 panic_active 的 atomic_read 检查（3521 行），
-	 * 但 panic 后 disarm 不会被调用（unbind 路径不可达）。
+	 * disarm 防护：disarm 使用 sticky 的 usb_debug_uart_panicking()
+	 * 检查（panic_enter 设置后永不清零），而不是 per-write 的
+	 * panic_active，彻底关闭两次 write 之间的 TOCTOU 窗口。
+	 * panic 后 unbind 路径本不可达，该检查是防御性保护。
 	 */
 	atomic_dec(&dwc3_debug_uart_ctx.panic_write_depth);
 	atomic_set(&dwc3_debug_uart_ctx.panic_active, 0);

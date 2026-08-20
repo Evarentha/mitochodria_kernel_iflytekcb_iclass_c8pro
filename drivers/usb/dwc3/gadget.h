@@ -118,9 +118,9 @@ static inline u32 dwc3_gadget_ep_get_transfer_index(struct dwc3_ep *dep)
 #ifdef CONFIG_USB_DEBUG_UART
 int dwc3_gadget_debug_uart_arm(struct usb_ep *ep);
 void dwc3_gadget_debug_uart_disarm(struct usb_ep *ep);
-void dwc3_gadget_debug_uart_panic_enter(void);
 int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
 					ktime_t deadline);
+bool usb_debug_uart_panicking(void);
 #endif
 
 #endif /* __DRIVERS_USB_DWC3_GADGET_H */

@@ -35,7 +35,6 @@
 
 extern int dwc3_gadget_debug_uart_panic_write(const char *buf, size_t len,
 						      ktime_t deadline);
-extern void dwc3_gadget_debug_uart_panic_enter(void);
 #endif
 
 #include "u_serial.h"
@@ -1280,8 +1279,16 @@ static int gs_console_thread(void *data)
 		port = info->port;
 		set_current_state(TASK_INTERRUPTIBLE);
 #ifdef CONFIG_USB_DEBUG_UART
-		if (smp_load_acquire(&usb_debug_uart_panic_mode))
-			goto sched;
+		/*
+		 * panic 模式已切换到轮询路径
+		 * （dwc3_gadget_debug_uart_panic_write），本消费线程不再需要，
+		 * 直接退出以避免 panic 后反复被唤醒空转。con_buf 中残留的
+		 * 均为 panic 前日志，重启后由 gs_console_setup 重新初始化。
+		 */
+		if (smp_load_acquire(&usb_debug_uart_panic_mode)) {
+			set_current_state(TASK_RUNNING);
+			break;
+		}
 #endif
 		if (!port || !port->port_usb
 		    || !port->port_usb->in || !info->console_req)
@@ -1483,6 +1490,12 @@ void usb_debug_uart_panic_enter(void)
 	smp_store_release(&usb_debug_uart_panic_mode, 1);
 }
 EXPORT_SYMBOL_GPL(usb_debug_uart_panic_enter);
+
+bool usb_debug_uart_panicking(void)
+{
+	return smp_load_acquire(&usb_debug_uart_panic_mode);
+}
+EXPORT_SYMBOL_GPL(usb_debug_uart_panicking);
 #endif
 
 #else
