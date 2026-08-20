@@ -759,6 +759,20 @@ static int gs_open(struct tty_struct *tty, struct file *file)
 	struct gs_port	*port;
 	int		status;
 
+#ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * USB Debug UART 的 console 端口由内核 console thread 独占。
+	 * 拒绝用户空间 open：否则 Android 的 console/cli 服务会通过
+	 * tty 层 gs_write() 与 console thread 并发 queue 同一个 USB IN
+	 * 端点，造成字节交错/乱码（系统启动后即出现的持续乱码）。
+	 */
+	if (port_num == gserial_cons.index) {
+		pr_warn_once("gs_open: ttyGS%d is reserved for kernel console\n",
+			     port_num);
+		return -EPERM;
+	}
+#endif
+
 	do {
 		mutex_lock(&ports[port_num].lock);
 		port = ports[port_num].port;
