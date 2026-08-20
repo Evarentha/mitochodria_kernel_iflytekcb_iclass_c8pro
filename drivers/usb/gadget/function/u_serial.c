@@ -1068,6 +1068,7 @@ struct console gserial_cons;
 static int saved_console_loglevel;
 static bool console_attached;
 static struct usb_ep *console_ep;
+static struct timer_list gserial_watchdog_timer;
 #endif
 
 static struct usb_request *gs_request_new(struct usb_ep *ep)
@@ -1167,17 +1168,50 @@ static int gs_console_connect(int port_num)
 	saved_console_loglevel = console_loglevel;
 	console_loglevel = 7;
 	console_attached = true;
+
+	/* 启动 watchdog 定时器，防止 console_stop 或 loglevel 被外部降低 */
+	mod_timer(&gserial_watchdog_timer, jiffies + HZ);
 #endif
 	pr_vdebug("port[%d] console connect!\n", port_num);
 	return 0;
 }
 
+#ifdef CONFIG_USB_DEBUG_UART
+/*
+ * Watchdog 定时器：每秒检查并强制恢复 CON_ENABLED 和 loglevel。
+ * 防御用户空间（setprop cli.stop console）或驱动调用 console_stop/降低 loglevel。
+ */
+static void gserial_watchdog_fn(struct timer_list *t)
+{
+	/* 仅在连接期间保护 */
+	if (!console_attached)
+		return;
+
+	/* 强制保持 CON_ENABLED */
+	if (!(gserial_cons.flags & CON_ENABLED)) {
+		gserial_cons.flags |= CON_ENABLED;
+		pr_warn("USB debug UART watchdog: re-enabled console\n");
+	}
+
+	/* 强制保持 loglevel=7 */
+	if (console_loglevel < 7) {
+		pr_warn("USB debug UART watchdog: restored loglevel from %d to 7\n",
+			console_loglevel);
+		console_loglevel = 7;
+	}
+
+	/* 1 秒后再次检查 */
+	mod_timer(&gserial_watchdog_timer, jiffies + HZ);
+}
+#endif
+
 static void gs_console_disconnect(struct usb_ep *ep)
 {
 	struct gscons_info *info = &gscons_info;
 	struct usb_request *req;
-	unsigned long flags;
 #ifdef CONFIG_USB_DEBUG_UART
+	unsigned long flags;
+
 	/*
 	 * 非 console（非 debug UART）端口断开：不碰 console 资源，
 	 * 避免误释放 debug UART 的 console_req 或误恢复 loglevel。
@@ -1205,6 +1239,9 @@ static void gs_console_disconnect(struct usb_ep *ep)
 		console_attached = false;
 	}
 	console_ep = NULL;
+
+	/* 停止 watchdog 定时器 */
+	del_timer_sync(&gserial_watchdog_timer);
 #endif
 }
 
@@ -1311,6 +1348,15 @@ static void gs_console_write(struct console *co,
 	unsigned long flags;
 
 #ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * 防御用户空间或驱动调用 console_stop 禁用本 console。
+	 * 强制恢复 CON_ENABLED 标志，确保 USB debug UART 始终接收日志。
+	 */
+	if (!(co->flags & CON_ENABLED)) {
+		co->flags |= CON_ENABLED;
+		pr_warn_once("USB debug UART: auto-recovered from console_stop\n");
+	}
+
 	if (smp_load_acquire(&usb_debug_uart_panic_mode)) {
 		ktime_t deadline = ktime_add_ms(ktime_get(), 200);
 		dwc3_gadget_debug_uart_panic_write(buf, count, deadline);
@@ -1363,6 +1409,9 @@ struct console gserial_cons = {
 static void gserial_console_init(void)
 {
 #ifdef CONFIG_USB_DEBUG_UART
+	/* 初始化 watchdog 定时器（连接时启动，断开时停止）*/
+	timer_setup(&gserial_watchdog_timer, gserial_watchdog_fn, 0);
+
 	if (gs_console_setup(&gserial_cons, NULL))
 		return;
 #endif
@@ -1393,6 +1442,8 @@ static void gserial_console_exit(void)
 	console_ep = NULL;
 	/* 失效 console index，防止 unbind 后其他 gserial 用户误附加 */
 	gserial_cons.index = -1;
+	/* 确保 watchdog 定时器停止（兜底，disconnect 应已停止）*/
+	del_timer_sync(&gserial_watchdog_timer);
 #endif
 	unregister_console(&gserial_cons);
 	if (!IS_ERR_OR_NULL(info->console_thread))
