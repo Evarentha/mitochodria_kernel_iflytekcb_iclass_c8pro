@@ -1472,6 +1472,22 @@ static int dwc3_suspend_common(struct dwc3 *dwc)
 	unsigned long	flags;
 	int ret;
 
+#ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * USB Debug UART 必须在 panic 时可用，需要 DWC3 控制器、PHY、
+	 * 端点保持激活状态。Console suspend 期间系统可能 panic，此时
+	 * dwc3_gadget_debug_uart_panic_write() 需要轮询访问 DWC3 寄存器。
+	 * 如果允许 suspend，会导致：
+	 *   1. dwc3_gadget_suspend() 停止控制器并断开所有端点
+	 *   2. dwc3_core_exit() 关闭 PHY 并断电
+	 *   3. panic 时寄存器访问失败，无法发送日志
+	 *
+	 * 因此跳过实际 suspend，但返回成功欺骗 PM 子系统（避免 PM 报错）。
+	 * 保持 always-on 会增加功耗，但这是 debug-only 配置的预期代价。
+	 */
+	return 0;
+#endif
+
 	switch (dwc->dr_mode) {
 	case USB_DR_MODE_PERIPHERAL:
 		spin_lock_irqsave(&dwc->lock, flags);
@@ -1505,6 +1521,14 @@ static int dwc3_resume_common(struct dwc3 *dwc)
 {
 	unsigned long	flags;
 	int		ret;
+
+#ifdef CONFIG_USB_DEBUG_UART
+	/*
+	 * USB Debug UART 模式下从未真正 suspend（dwc3_suspend_common 直接返回），
+	 * 控制器、PHY、端点始终保持激活。跳过 resume 操作避免重复初始化。
+	 */
+	return 0;
+#endif
 
 	ret = dwc3_core_init(dwc);
 	if (ret)
