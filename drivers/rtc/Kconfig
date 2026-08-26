@@ -1183,6 +1183,14 @@ config MITOCHODRIA_RTC_SKIP_PAST_ALARM
 	  right after suspend entry. Enable to leave hardware alarms disabled
 	  for such requests.
 
+config MITOCHODRIA_RTC_FIX_BASELINE
+	bool "Mitochodria: seed SC27xx RTC baseline when invalid at probe"
+	default n
+	help
+	  A full power cycle clears the SC2730 time-valid flag while the
+	  counter restarts near zero; alarm mappings then land seconds away
+	  from suspend entry. Seed the counter with a modern epoch instead.
+
 config RTC_DRV_SC27XX
 	tristate "Spreadtrum SC27xx RTC"
 	depends on MFD_SC27XX_PMIC || COMPILE_TEST

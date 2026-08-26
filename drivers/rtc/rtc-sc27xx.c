@@ -603,6 +603,43 @@ static irqreturn_t sprd_rtc_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
+/*
+ * Mitochodria RTC baseline repair: on a full power cycle the SC2730 RTC
+ * domain loses its "time is valid" flag while alarmtimer keeps mapping
+ * CLOCK_BOOTTIME/REALTIME alarms through a counter that restarts near
+ * zero. Scheduled wakeups then land seconds away from suspend entry and
+ * break deep sleep. When probe finds the time invalid, seed the counter
+ * with a modern epoch so hctosys and alarm arithmetic stay sane until
+ * userspace sets the real clock.
+ */
+#define MITOCHODRIA_RTC_BASE_EPOCH	1767225600LL /* 2026-01-01 00:00:00 UTC */
+
+static int sprd_rtc_init_baseline(struct sprd_rtc *rtc)
+{
+	int ret;
+
+	ret = sprd_rtc_set_secs(rtc, SPRD_RTC_TIME, MITOCHODRIA_RTC_BASE_EPOCH);
+	if (ret)
+		return ret;
+
+	ret = regmap_write(rtc->regmap, rtc->base + SPRD_RTC_PWR_CTRL,
+			   SPRD_RTC_POWER_STS_CLEAR);
+	if (ret)
+		return ret;
+
+	ret = regmap_write(rtc->regmap, rtc->base + SPRD_RTC_PWR_CTRL,
+			   SPRD_RTC_POWER_STS_VALID);
+	if (ret)
+		return ret;
+
+	rtc->valid = true;
+	dev_warn(rtc->dev, "mitochodria-rtc: seeded invalid RTC baseline to %lld\n",
+		 MITOCHODRIA_RTC_BASE_EPOCH);
+	return 0;
+}
+#endif
+
 static int sprd_rtc_check_power_down(struct sprd_rtc *rtc)
 {
 	u32 val;
@@ -693,6 +730,16 @@ static int sprd_rtc_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to check RTC time values\n");
 		return ret;
 	}
+
+#ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
+	if (!rtc->valid) {
+		ret = sprd_rtc_init_baseline(rtc);
+		if (ret) {
+			dev_err(&pdev->dev, "failed to seed RTC baseline\n");
+			return ret;
+		}
+	}
+#endif
 
 	ret = devm_request_threaded_irq(&pdev->dev, rtc->irq, NULL,
 					sprd_rtc_handler,
