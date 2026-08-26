@@ -1,2 +1,11 @@
 scripts_out/
 source/
+
+# Mitochodria: build-system glue and dev artifacts removed from this tree;
+# do not re-add (see Documentation/mitochodria/sc27xx-deep-sleep-wake-fixes.rst)
+AndroidKernel.mk
+build.sh
+verity_dev_keys.x509
+sprd-board-config/
+build.config.cuttlefish.*
+build.config.goldfish.*
