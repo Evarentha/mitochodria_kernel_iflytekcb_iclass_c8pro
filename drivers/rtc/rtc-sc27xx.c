@@ -570,18 +570,28 @@ static int sprd_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	 * On this SC2730 the auxiliary alarm comparator matches the seconds
 	 * field alone: an armed aux alarm fires at the next counter second
 	 * equal to its SEC value, at most one minute later, whatever the
-	 * requested day/hour/min. Boottime wake events use exactly this
-	 * path, so arming one guarantees a deep-sleep break within a
-	 * minute. Never arm it; those events are delivered on the next
-	 * natural wake (key, charger, lid) instead.
+	 * requested day/hour/min (latch self-test confirms all four fields
+	 * are written correctly - the comparator simply ignores the others).
+	 *
+	 * With MITOCHODRIA_RTC_MAIN_WAKE, fall through to the normal alarm
+	 * below: it is programmed with per-field polling (full tuple
+	 * honoured) and has never shown the seconds-only behaviour. Its
+	 * extra capability - powering up from power-down - only matters
+	 * across poweroff, where the horizon guard keeps heartbeat-class
+	 * alarms unarmed. Without MAIN_WAKE, keep boottime events software-
+	 * only and disable the auxiliary hardware.
 	 */
 	if (!rtc->rtc->aie_timer.enabled || rtc_tm_sub(&aie_time, &alrm->time)) {
+#ifndef CONFIG_MITOCHODRIA_RTC_MAIN_WAKE
 		pr_warn_ratelimited("mitochodria-rtc: skip arming aux wake alarm\n");
 		regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
 			     SPRD_RTC_AUXALM_EN);
 		return regmap_update_bits(rtc->regmap,
 					  rtc->base + SPRD_RTC_INT_EN,
 					  SPRD_RTC_AUXALM_EN, 0);
+#else
+		pr_warn_ratelimited("mitochodria-rtc: wake event routed to normal alarm\n");
+#endif
 	}
 #endif
 	if (!rtc->rtc->aie_timer.enabled || rtc_tm_sub(&aie_time, &alrm->time))
