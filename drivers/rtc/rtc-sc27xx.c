@@ -617,14 +617,6 @@ static int sprd_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 		/* unlock the alarm to enable the alarm function. */
 		ret = sprd_rtc_lock_alarm(rtc, false);
-#ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
-		/*
-		 * Mitochodria: keep the RTC aggregate gated at the PMIC INTC
-		 * from the moment the alarm is programmed; its write handshakes
-		 * must not wake deep sleep.
-		 */
-		regmap_update_bits(rtc->regmap, 0x88, BIT(1), 0);
-#endif
 	} else {
 		regmap_update_bits(rtc->regmap,
 				   rtc->base + SPRD_RTC_INT_EN,
@@ -704,15 +696,6 @@ static int sprd_rtc_suspend(struct device *dev)
 	ret = regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
 				 SPRD_RTC_INT_MASK, 0);
 	pr_info("rtc suspend: masked all sources (ret=%d)\n", ret);
-#ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
-	/*
-	 * Mitochodria: also gate the RTC aggregate at the PMIC INTC level
-	 * (INT_EN bit1). Nothing above this layer can re-enable it during
-	 * deep sleep, so no RTC sub-source - however programmed - can wake
-	 * the AP.
-	 */
-	regmap_update_bits(rtc->regmap, 0x88, BIT(1), 0);
-#endif
 	return ret;
 }
 
@@ -724,10 +707,8 @@ static int sprd_rtc_resume(struct device *dev)
 		     SPRD_RTC_INT_MASK);
 	/*
 	 * Mitochodria: never restore the auxiliary alarm enable bit; the
-	 * aux comparator matches the seconds field alone. Re-enable the
-	 * PMIC INTC aggregate bit masked at suspend.
+	 * aux comparator matches the seconds field alone.
 	 */
-	regmap_update_bits(rtc->regmap, 0x88, BIT(1), BIT(1));
 	return regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
 				  SPRD_RTC_INT_MASK,
 				  rtc->saved_int_en & ~SPRD_RTC_AUXALM_EN);
