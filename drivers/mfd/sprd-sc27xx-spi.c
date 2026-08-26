@@ -112,6 +112,20 @@ static irqreturn_t mitochodria_pmic_irq_snoop(int irq, void *dev)
 		(raw & BIT(7)) ? "B7 " : "",
 		(raw & BIT(8)) ? "TYPEC " : "",
 		(raw & BIT(9)) ? "PD" : "", en);
+	if (raw & BIT(1)) {
+		unsigned int ren, rraw, rmask;
+
+		/*
+		 * RTC block (ADISLAVE+0x200) sub-sources: bits 12..15 are
+		 * the alarm-register write-handshake (UPDATE) interrupts,
+		 * which fire on every alarm programming, not on expiry.
+		 */
+		regmap_read(ddata->regmap, 0x200 + 0x30, &ren);
+		regmap_read(ddata->regmap, 0x200 + 0x34, &rraw);
+		regmap_read(ddata->regmap, 0x200 + 0x3c, &rmask);
+		pr_info("pmic irq rtc: en=%#x raw=%#x mask=%#x upd_en=%#x\n",
+			ren, rraw, rmask, (ren >> 8) & 0xf);
+	}
 	return IRQ_HANDLED;
 }
 #endif
