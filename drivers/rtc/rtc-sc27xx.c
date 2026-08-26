@@ -593,7 +593,23 @@ static const struct rtc_class_ops sprd_rtc_ops = {
 static irqreturn_t sprd_rtc_handler(int irq, void *dev_id)
 {
 	struct sprd_rtc *rtc = dev_id;
+	unsigned int en = 0, raw = 0, alm_sec = 0, cnt_sec = 0;
 	int ret;
+
+#ifdef CONFIG_MITOCHODRIA_PMIC_IRQ_SNOOP
+	/*
+	 * Mitochodria wake diagnostic: capture the RTC-block banks BEFORE
+	 * acking. PMIC bit1 aggregates this block; seeing WHICH sub-source
+	 * (alarm match vs the 12..15 write-handshake UPDATE interrupts)
+	 * names the deep-sleep waker exactly.
+	 */
+	regmap_read(rtc->regmap, rtc->base + SPRD_RTC_INT_EN, &en);
+	regmap_read(rtc->regmap, rtc->base + SPRD_RTC_INT_MASK_STS, &raw);
+	regmap_read(rtc->regmap, rtc->base + SPRD_RTC_SEC_ALM_VALUE, &alm_sec);
+	regmap_read(rtc->regmap, rtc->base + SPRD_RTC_SEC_CNT_VALUE, &cnt_sec);
+	pr_info("rtc irq trace: en=%#x sts=%#x alm_sec=%u cnt_sec=%u upd_en=%#x\n",
+		en, raw, alm_sec, cnt_sec, (en >> 8) & 0xf);
+#endif
 
 	ret = sprd_rtc_clear_alarm_ints(rtc);
 	if (ret)
