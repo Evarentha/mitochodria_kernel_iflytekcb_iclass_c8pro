@@ -14,7 +14,7 @@ jobs:
       - name: reject other-device and junk paths
         run: |
           ! git ls-files | grep -E \
-            '(^|/)istudy|iflytek_istudy|(^|/)iclass-c8pro\.dts|(^|/)source/|^scripts_out/|AndroidKernel\.mk|^build\.config\.(cuttlefish|goldfish)|^verity_dev_keys\.x509|^build\.sh$|sprd-board-config'
+            '(^|/)istudy|iflytek_istudy|(^|/)iclass-c8pro\.dts|(^|/)source/|^scripts_out/|AndroidKernel\.mk|^build\.config\.(cuttlefish|goldfish)|^verity_dev_keys\.x509|^build\.sh$|sprd-board-config|__pycache__/|\.pyc$|\.orig$|\.rej$|\.vscode/|\.idea/|\.DS_Store'
       - name: reject C10 keywords in commit messages
         run: |
           ! git log --format='%s %B' | grep -iE 'istudy|tx20' | grep -iE 'c10' | head -1
