@@ -524,13 +524,15 @@ static bool sprd_rtc_skip_past_alarm(struct sprd_rtc *rtc, time64_t secs)
 	int ret;
 
 	ret = sprd_rtc_get_secs(rtc, SPRD_RTC_TIME, &now);
-	if (ret)
+	if (ret) {
+		pr_warn_ratelimited("mitochodria-rtc: skip guard cannot read counter (%d)\n", ret);
 		return false;
+	}
 	if (secs > now + (time64_t)CONFIG_MITOCHODRIA_RTC_WAKE_MIN_LEAD_S)
 		return false;
 
-	pr_warn_ratelimited("mitochodria-rtc: skip arming alarm %lld <= rtc now %lld\n",
-			    secs, now);
+	pr_warn_ratelimited("mitochodria-rtc: skip arming alarm %lld <= rtc now %lld (+%d s horizon)\n",
+			    secs, now, CONFIG_MITOCHODRIA_RTC_WAKE_MIN_LEAD_S);
 	regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
 		     SPRD_RTC_ALARM_EN | SPRD_RTC_AUXALM_EN);
 	regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
@@ -929,6 +931,25 @@ static const struct of_device_id sprd_rtc_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, sprd_rtc_of_match);
 
+#ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
+/*
+ * Mitochodria poweroff safety: the auxiliary/main alarm comparators can
+ * re-power the PMIC after poweroff (the aux comparator matches the
+ * seconds field alone, so any armed alarm asserts within a minute).
+ * Disarm and lock everything at shutdown so the device stays off.
+ */
+static void sprd_rtc_shutdown(struct platform_device *pdev)
+{
+	struct sprd_rtc *rtc = platform_get_drvdata(pdev);
+
+	regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
+		     SPRD_RTC_INT_MASK);
+	regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
+			   SPRD_RTC_INT_MASK, 0);
+	sprd_rtc_lock_alarm(rtc, true);
+}
+#endif
+
 static struct platform_driver sprd_rtc_driver = {
 	.driver = {
 		.name = "sprd-rtc",
@@ -936,6 +957,9 @@ static struct platform_driver sprd_rtc_driver = {
 	},
 	.probe	= sprd_rtc_probe,
 	.remove = sprd_rtc_remove,
+#ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
+	.shutdown = sprd_rtc_shutdown,
+#endif
 };
 module_platform_driver(sprd_rtc_driver);
 
