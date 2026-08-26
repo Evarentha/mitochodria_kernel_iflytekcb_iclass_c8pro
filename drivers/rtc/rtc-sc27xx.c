@@ -638,17 +638,22 @@ static int sprd_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
 	int ret;
 
 	if (enabled) {
+		/*
+		 * Mitochodria: enable the normal alarm only. The auxiliary
+		 * comparator matches the seconds field alone and would wake
+		 * deep sleep within a minute of any arming.
+		 */
 		ret = regmap_update_bits(rtc->regmap,
 					 rtc->base + SPRD_RTC_INT_EN,
-					 SPRD_RTC_ALARM_EN | SPRD_RTC_AUXALM_EN,
-					 SPRD_RTC_ALARM_EN | SPRD_RTC_AUXALM_EN);
+					 SPRD_RTC_ALARM_EN,
+					 SPRD_RTC_ALARM_EN);
 		if (ret)
 			return ret;
 
 		ret = sprd_rtc_lock_alarm(rtc, false);
 	} else {
 		regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
-				   SPRD_RTC_ALARM_EN | SPRD_RTC_AUXALM_EN, 0);
+				   SPRD_RTC_ALARM_EN, 0);
 
 		ret = sprd_rtc_lock_alarm(rtc, true);
 	}
@@ -700,8 +705,13 @@ static int sprd_rtc_resume(struct device *dev)
 
 	regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
 		     SPRD_RTC_INT_MASK);
+	/*
+	 * Mitochodria: never restore the auxiliary alarm enable bit; the
+	 * aux comparator matches the seconds field alone.
+	 */
 	return regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
-				  SPRD_RTC_INT_MASK, rtc->saved_int_en);
+				  SPRD_RTC_INT_MASK,
+				  rtc->saved_int_en & ~SPRD_RTC_AUXALM_EN);
 }
 #endif
 
