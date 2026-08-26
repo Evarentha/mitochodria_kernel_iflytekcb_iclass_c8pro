@@ -366,6 +366,8 @@ static int sprd_rtc_set_aux_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 					 rtc->base + SPRD_RTC_INT_EN,
 					 SPRD_RTC_AUXALM_EN,
 					 SPRD_RTC_AUXALM_EN);
+		pr_info("rtc aux armed: secs=%lld en write ret=%d\n",
+			(long long)secs, ret);
 		if (ret)
 			return ret;
 	} else {
@@ -648,13 +650,17 @@ static int sprd_rtc_suspend(struct device *dev)
 
 	ret = regmap_read(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
 			  &rtc->saved_int_en);
+	pr_info("rtc suspend: saved en=%#x (read ret=%d)\n",
+		rtc->saved_int_en, ret);
 	if (ret)
 		return ret;
 
 	regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
 		     SPRD_RTC_INT_MASK);
-	return regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
-				  SPRD_RTC_INT_MASK, 0);
+	ret = regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
+				 SPRD_RTC_INT_MASK, 0);
+	pr_info("rtc suspend: masked all sources (ret=%d)\n", ret);
+	return ret;
 }
 
 static int sprd_rtc_resume(struct device *dev)
