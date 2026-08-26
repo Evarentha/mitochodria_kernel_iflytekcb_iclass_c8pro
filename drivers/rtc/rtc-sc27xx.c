@@ -524,7 +524,9 @@ static bool sprd_rtc_skip_past_alarm(struct sprd_rtc *rtc, time64_t secs)
 	int ret;
 
 	ret = sprd_rtc_get_secs(rtc, SPRD_RTC_TIME, &now);
-	if (ret || secs > now)
+	if (ret)
+		return false;
+	if (secs > now + (time64_t)CONFIG_MITOCHODRIA_RTC_WAKE_MIN_LEAD_S)
 		return false;
 
 	pr_warn_ratelimited("mitochodria-rtc: skip arming alarm %lld <= rtc now %lld\n",

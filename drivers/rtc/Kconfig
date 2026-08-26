@@ -1174,6 +1174,17 @@ config RTC_DRV_WM8350
 	  This driver can also be built as a module. If so, the module
 	  will be called "rtc-wm8350".
 
+config MITOCHODRIA_RTC_WAKE_MIN_LEAD_S
+	int "Mitochodria: drop SC27xx wake alarms due within this many seconds"
+	depends on MITOCHODRIA_RTC_SKIP_PAST_ALARM
+	default 30
+	help
+	  Wake alarms due within this horizon are not armed into the
+	  hardware; they fire late, on the next natural wake (key, charger,
+	  lid). Prevents frequent short-horizon boottime heartbeats from
+	  waking the AP (standby drain) and any user-space screen-on that
+	  follows. 0 disables the horizon (only past-due alarms are skipped).
+
 config MITOCHODRIA_RTC_SKIP_PAST_ALARM
 	bool "Mitochodria: skip arming SC27xx RTC alarms already in the past"
 	default n
