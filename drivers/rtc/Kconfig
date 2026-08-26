@@ -1185,6 +1185,16 @@ config MITOCHODRIA_RTC_WAKE_MIN_LEAD_S
 	  waking the AP (standby drain) and any user-space screen-on that
 	  follows. 0 disables the horizon (only past-due alarms are skipped).
 
+config MITOCHODRIA_RTC_NO_AUX_HW_WAKE
+	bool "Mitochodria: never arm the SC27xx auxiliary wake alarm"
+	default n
+	help
+	  The SC2730 auxiliary alarm comparator matches the seconds field
+	  alone, so an armed aux wake alarm fires within at most one minute
+	  regardless of the requested time. Enable to keep boottime wake
+	  events software-only: they are delivered on the next natural wake
+	  instead of breaking deep sleep.
+
 config MITOCHODRIA_RTC_SKIP_PAST_ALARM
 	bool "Mitochodria: skip arming SC27xx RTC alarms already in the past"
 	default n

@@ -565,6 +565,25 @@ static int sprd_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	 * should set normal alarm, if not, we should set auxiliary alarm which
 	 * means it is just a wake event.
 	 */
+#ifdef CONFIG_MITOCHODRIA_RTC_NO_AUX_HW_WAKE
+	/*
+	 * On this SC2730 the auxiliary alarm comparator matches the seconds
+	 * field alone: an armed aux alarm fires at the next counter second
+	 * equal to its SEC value, at most one minute later, whatever the
+	 * requested day/hour/min. Boottime wake events use exactly this
+	 * path, so arming one guarantees a deep-sleep break within a
+	 * minute. Never arm it; those events are delivered on the next
+	 * natural wake (key, charger, lid) instead.
+	 */
+	if (!rtc->rtc->aie_timer.enabled || rtc_tm_sub(&aie_time, &alrm->time)) {
+		pr_warn_ratelimited("mitochodria-rtc: skip arming aux wake alarm\n");
+		regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
+			     SPRD_RTC_AUXALM_EN);
+		return regmap_update_bits(rtc->regmap,
+					  rtc->base + SPRD_RTC_INT_EN,
+					  SPRD_RTC_AUXALM_EN, 0);
+	}
+#endif
 	if (!rtc->rtc->aie_timer.enabled || rtc_tm_sub(&aie_time, &alrm->time))
 		return sprd_rtc_set_aux_alarm(dev, alrm);
 
