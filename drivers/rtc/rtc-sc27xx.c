@@ -463,6 +463,37 @@ static int sprd_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	return 0;
 }
 
+#ifdef CONFIG_MITOCHODRIA_RTC_SKIP_PAST_ALARM
+/*
+ * Mitochodria deep-sleep wake fix: with a reset or corrupted RTC baseline
+ * (the counter starts over near zero on every full power cycle while
+ * alarmtimer keeps scheduling wall-clock alarms), an alarm request can
+ * map to an absolute time that is already past. Arming the hardware then
+ * wakes the AP immediately after suspend entry and can break the sleep
+ * cycle entirely. When the requested time is not in the future, leave
+ * both hardware alarms disabled: the system still suspends, the due
+ * timer is handled by any other wake source, and once userspace sets a
+ * sane clock the normal behaviour resumes.
+ */
+static bool sprd_rtc_skip_past_alarm(struct sprd_rtc *rtc, time64_t secs)
+{
+	time64_t now;
+	int ret;
+
+	ret = sprd_rtc_get_secs(rtc, SPRD_RTC_TIME, &now);
+	if (ret || secs > now)
+		return false;
+
+	pr_warn_ratelimited("mitochodria-rtc: skip arming alarm %lld <= rtc now %lld\n",
+			    secs, now);
+	regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
+		     SPRD_RTC_ALARM_EN | SPRD_RTC_AUXALM_EN);
+	regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
+			   SPRD_RTC_ALARM_EN | SPRD_RTC_AUXALM_EN, 0);
+	return true;
+}
+#endif
+
 static int sprd_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 {
 	struct sprd_rtc *rtc = dev_get_drvdata(dev);
@@ -470,6 +501,11 @@ static int sprd_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	struct rtc_time aie_time =
 		rtc_ktime_to_tm(rtc->rtc->aie_timer.node.expires);
 	int ret;
+
+#ifdef CONFIG_MITOCHODRIA_RTC_SKIP_PAST_ALARM
+	if (alrm->enabled && sprd_rtc_skip_past_alarm(rtc, secs))
+		return 0;
+#endif
 
 	/*
 	 * We have 2 groups alarms: normal alarm and auxiliary alarm. Since

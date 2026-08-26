@@ -1174,6 +1174,15 @@ config RTC_DRV_WM8350
 	  This driver can also be built as a module. If so, the module
 	  will be called "rtc-wm8350".
 
+config MITOCHODRIA_RTC_SKIP_PAST_ALARM
+	bool "Mitochodria: skip arming SC27xx RTC alarms already in the past"
+	default n
+	help
+	  With a reset or corrupted RTC baseline, alarmtimer requests can map
+	  to absolute times that are already past; arming them wakes the AP
+	  right after suspend entry. Enable to leave hardware alarms disabled
+	  for such requests.
+
 config RTC_DRV_SC27XX
 	tristate "Spreadtrum SC27xx RTC"
 	depends on MFD_SC27XX_PMIC || COMPILE_TEST
