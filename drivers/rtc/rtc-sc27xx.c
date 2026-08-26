@@ -365,11 +365,41 @@ static int sprd_rtc_set_aux_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 					 rtc->base + SPRD_RTC_INT_EN,
 					 SPRD_RTC_AUXALM_EN,
 					 SPRD_RTC_AUXALM_EN);
+		if (ret)
+			return ret;
 	} else {
-		ret = regmap_update_bits(rtc->regmap,
-					 rtc->base + SPRD_RTC_INT_EN,
-					 SPRD_RTC_AUXALM_EN, 0);
+		return regmap_update_bits(rtc->regmap,
+					  rtc->base + SPRD_RTC_INT_EN,
+					  SPRD_RTC_AUXALM_EN, 0);
 	}
+
+#ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
+	/*
+	 * Mitochodria deep-sleep wake fix: programming the auxiliary alarm
+	 * completes its register handshake asynchronously, ~100-300 ms
+	 * later, and raises the AUXALM status bit. The driver reports that
+	 * completion as RTC_AF, which wakes/aborts deep sleep right after
+	 * suspend entry. Wait out the handshake here and clear the status,
+	 * so only a genuine expiry is ever reported.
+	 */
+	{
+		int i;
+
+		for (i = 0; i < 25; i++) {
+			unsigned int raw = 0;
+
+			msleep(20);
+			regmap_read(rtc->regmap,
+				    rtc->base + SPRD_RTC_INT_RAW_STS, &raw);
+			if (raw & SPRD_RTC_AUXALM_EN) {
+				regmap_write(rtc->regmap,
+					     rtc->base + SPRD_RTC_INT_CLR,
+					     SPRD_RTC_AUXALM_EN);
+				break;
+			}
+		}
+	}
+#endif
 
 	return ret;
 }
