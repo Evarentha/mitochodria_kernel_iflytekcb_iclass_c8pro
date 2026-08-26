@@ -6,7 +6,7 @@
 	#size-cells = <0x02>;
 	cpuinfo_hardware = "Unisoc UD710";
 	model = "iFLYTEKCB iClass C8Pro";
-	compatible = "sprd,ud710_21c10", "sprd,ud710";
+	compatible = "iflytek,iclass-c8pro", "sprd,ud710";
 	sprd,sc-id = <0x2c6 0x01 0x20000>;
 
 	/* U-Boot clamps this runtime request to its compiled log-level maximum. */
@@ -7142,7 +7142,7 @@
 
 	chosen {
 		stdout-path = "/soc/ap-apb/serial@70100000";
-		bootargs = "earlycon=sprd_serial,0x70100000,115200n8 console=ttyS1,115200n8 loglevel=8 init=/init root=/dev/mmcblk0p30 rootfstype=ext4 ro rootwait androidboot.hardware=ud710_21c10 androidboot.dtbo_idx=0 printk.devkmsg=on pcie_ports=compat";
+		bootargs = "earlycon=sprd_serial,0x70100000,115200n8 console=ttyS1,115200n8 loglevel=1 init=/init root=/dev/mmcblk0p30 rootfstype=ext4 ro rootwait androidboot.hardware=ud710_21c10 androidboot.dtbo_idx=0 printk.devkmsg=on pcie_ports=compat";
 	};
 
 	ipi: interrupt-controller {

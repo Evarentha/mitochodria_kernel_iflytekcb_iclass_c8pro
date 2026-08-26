@@ -366,8 +366,6 @@ static int sprd_rtc_set_aux_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 					 rtc->base + SPRD_RTC_INT_EN,
 					 SPRD_RTC_AUXALM_EN,
 					 SPRD_RTC_AUXALM_EN);
-		pr_info("rtc aux armed: secs=%lld en write ret=%d\n",
-			(long long)secs, ret);
 		if (ret)
 			return ret;
 	} else {
@@ -405,12 +403,8 @@ static int sprd_rtc_set_aux_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 					     rtc->base + SPRD_RTC_INT_CLR,
 					     SPRD_RTC_AUXALM_EN);
 				cleared = true;
-				pr_info("mitochodria-rtc: cleared aux handshake after %d ms\n",
-					(i + 1) * 20);
 			}
 		}
-		if (!cleared)
-			pr_info("mitochodria-rtc: no aux handshake within 2000 ms\n");
 	}
 #endif
 
@@ -531,7 +525,7 @@ static bool sprd_rtc_skip_past_alarm(struct sprd_rtc *rtc, time64_t secs)
 	if (secs > now + (time64_t)CONFIG_MITOCHODRIA_RTC_WAKE_MIN_LEAD_S)
 		return false;
 
-	pr_warn_ratelimited("mitochodria-rtc: skip arming alarm %lld <= rtc now %lld (+%d s horizon)\n",
+	pr_debug_ratelimited("mitochodria-rtc: skip arming alarm %lld <= rtc now %lld (+%d s horizon)\n",
 			    secs, now, CONFIG_MITOCHODRIA_RTC_WAKE_MIN_LEAD_S);
 	regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
 		     SPRD_RTC_ALARM_EN | SPRD_RTC_AUXALM_EN);
@@ -585,14 +579,14 @@ static int sprd_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	 */
 	if (!rtc->rtc->aie_timer.enabled || rtc_tm_sub(&aie_time, &alrm->time)) {
 #ifndef CONFIG_MITOCHODRIA_RTC_MAIN_WAKE
-		pr_warn_ratelimited("mitochodria-rtc: skip arming aux wake alarm\n");
+		pr_debug_ratelimited("mitochodria-rtc: skip arming aux wake alarm\n");
 		regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
 			     SPRD_RTC_AUXALM_EN);
 		return regmap_update_bits(rtc->regmap,
 					  rtc->base + SPRD_RTC_INT_EN,
 					  SPRD_RTC_AUXALM_EN, 0);
 #else
-		pr_warn_ratelimited("mitochodria-rtc: wake event routed to normal alarm\n");
+		pr_debug_ratelimited("mitochodria-rtc: wake event routed to normal alarm\n");
 #endif
 	}
 #endif
@@ -674,23 +668,7 @@ static const struct rtc_class_ops sprd_rtc_ops = {
 static irqreturn_t sprd_rtc_handler(int irq, void *dev_id)
 {
 	struct sprd_rtc *rtc = dev_id;
-	unsigned int en = 0, raw = 0, alm_sec = 0, cnt_sec = 0;
 	int ret;
-
-#ifdef CONFIG_MITOCHODRIA_PMIC_IRQ_SNOOP
-	/*
-	 * Mitochodria wake diagnostic: capture the RTC-block banks BEFORE
-	 * acking. PMIC bit1 aggregates this block; seeing WHICH sub-source
-	 * (alarm match vs the 12..15 write-handshake UPDATE interrupts)
-	 * names the deep-sleep waker exactly.
-	 */
-	regmap_read(rtc->regmap, rtc->base + SPRD_RTC_INT_EN, &en);
-	regmap_read(rtc->regmap, rtc->base + SPRD_RTC_INT_MASK_STS, &raw);
-	regmap_read(rtc->regmap, rtc->base + SPRD_RTC_SEC_ALM_VALUE, &alm_sec);
-	regmap_read(rtc->regmap, rtc->base + SPRD_RTC_SEC_CNT_VALUE, &cnt_sec);
-	pr_info("rtc irq trace: en=%#x sts=%#x alm_sec=%u cnt_sec=%u upd_en=%#x\n",
-		en, raw, alm_sec, cnt_sec, (en >> 8) & 0xf);
-#endif
 
 	ret = sprd_rtc_clear_alarm_ints(rtc);
 	if (ret)
@@ -827,61 +805,6 @@ static int sprd_rtc_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to check RTC time values\n");
 		return ret;
 	}
-
-#ifdef CONFIG_MITOCHODRIA_PMIC_IRQ_SNOOP
-	/*
-	 * Mitochodria aux-alarm self-test: program an alarm 47 s out, wait
-	 * for the write handshake, then read all four latched fields back.
-	 * If they match the request, the comparator is full-tuple accurate
-	 * and timed wake alarms can be fixed properly; if seconds-only
-	 * latches, the comparator really is seconds-granular and the
-	 * never-arm policy is the only option.
-	 */
-	{
-		time64_t now = 0, target;
-		unsigned int en_save = 0, raw, v;
-		int i;
-
-		sprd_rtc_get_secs(rtc, SPRD_RTC_TIME, &now);
-		target = now + 47;
-
-		regmap_read(rtc->regmap, rtc->base + SPRD_RTC_INT_EN, &en_save);
-		regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
-			     SPRD_RTC_AUXALM_EN);
-		sprd_rtc_set_secs(rtc, SPRD_RTC_AUX_ALARM, target);
-
-		for (i = 0; i < 150; i++) {
-			msleep(10);
-			regmap_read(rtc->regmap,
-				    rtc->base + SPRD_RTC_INT_RAW_STS, &raw);
-			if (raw & SPRD_RTC_AUXALM_EN)
-				break;
-		}
-		dev_warn(&pdev->dev,
-			 "rtc aux selftest: handshake %s after %d ms\n",
-			 (i < 150) ? "completed" : "timeout", (i + 1) * 10);
-
-		dev_warn(&pdev->dev,
-			 "rtc aux selftest: target=%lld (sec=%lld min=%lld hour=%lld day=%lld)\n",
-			 target, target % 60, (target / 60) % 60,
-			 (target / 3600) % 24, target / 86400);
-		regmap_read(rtc->regmap, rtc->base + 0x60, &v);
-		dev_warn(&pdev->dev, "rtc aux selftest: latched sec=%u\n", v);
-		regmap_read(rtc->regmap, rtc->base + 0x64, &v);
-		dev_warn(&pdev->dev, "rtc aux selftest: latched min=%u\n", v);
-		regmap_read(rtc->regmap, rtc->base + 0x68, &v);
-		dev_warn(&pdev->dev, "rtc aux selftest: latched hour=%u\n", v);
-		regmap_read(rtc->regmap, rtc->base + 0x6c, &v);
-		dev_warn(&pdev->dev, "rtc aux selftest: latched day=%u\n", v);
-
-		regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
-			     SPRD_RTC_AUXALM_EN);
-		regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
-				   SPRD_RTC_ALARM_EN | SPRD_RTC_AUXALM_EN,
-				   en_save & (SPRD_RTC_ALARM_EN |
-					      SPRD_RTC_AUXALM_EN));
-	}
-#endif
 
 #ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
 	if (!rtc->valid) {
