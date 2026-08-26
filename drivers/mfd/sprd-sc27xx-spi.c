@@ -34,6 +34,7 @@
 
 struct sprd_pmic {
 	struct regmap *regmap;
+	struct device *dev;
 	struct regmap_irq *irqs;
 	struct regmap_irq_chip irq_chip;
 	struct regmap_irq_chip_data *irq_data;
@@ -50,6 +51,13 @@ struct sprd_pmic_data {
  * base address and irq number, we should save irq number and irq base
  * in the device data structure.
  */
+static u32 pdata_irq_base(struct sprd_pmic *ddata)
+{
+	const struct sprd_pmic_data *pd =
+		of_device_get_match_data(ddata->dev);
+	return pd ? pd->irq_base : SPRD_SC2730_IRQ_BASE;
+}
+
 static const struct sprd_pmic_data sc2731_data = {
 	.irq_base = SPRD_SC2731_IRQ_BASE,
 	.num_irqs = SPRD_SC2731_IRQ_NUMS,
@@ -69,6 +77,44 @@ static const struct sprd_pmic_data sc2720_data = {
 	.irq_base = SPRD_SC2720_IRQ_BASE,
 	.num_irqs = SPRD_SC2720_IRQ_NUMS,
 };
+
+#ifdef CONFIG_MITOCHODRIA_PMIC_IRQ_SNOOP
+/*
+ * Mitochodria wake diagnostic: run a shared threaded snoop on the PMIC
+ * interrupt and print the raw sub-interrupt banks at every assertion.
+ * Used to identify which SC2730 source asserts INT_APCPU_ANA during AP
+ * deep sleep (the ~0.47 s post-entry wake).
+ */
+static irqreturn_t mitochodria_pmic_irq_snoop(int irq, void *dev)
+{
+	struct sprd_pmic *ddata = dev;
+	unsigned int mask, raw, en;
+
+	if (!ddata || !ddata->regmap)
+		return IRQ_NONE;
+	if (regmap_read(ddata->regmap,
+			pdata_irq_base(ddata) + 0x0, &mask) ||
+	    regmap_read(ddata->regmap,
+			pdata_irq_base(ddata) + 0x4, &raw) ||
+	    regmap_read(ddata->regmap,
+			pdata_irq_base(ddata) + 0x8, &en))
+		return IRQ_NONE;
+
+	pr_info("pmic irq: mask=%#x raw=%#x (%s%s%s%s%s%s%s%s) typec/pd=%s%s en=%#x\n",
+		mask, raw,
+		(raw & BIT(0)) ? "ADC " : "",
+		(raw & BIT(1)) ? "RTC " : "",
+		(raw & BIT(2)) ? "B2 " : "",
+		(raw & BIT(3)) ? "FGU " : "",
+		(raw & BIT(4)) ? "EIC " : "",
+		(raw & BIT(5)) ? "FASTCHG " : "",
+		(raw & BIT(6)) ? "B6 " : "",
+		(raw & BIT(7)) ? "B7 " : "",
+		(raw & BIT(8)) ? "TYPEC " : "",
+		(raw & BIT(9)) ? "PD" : "", en);
+	return IRQ_HANDLED;
+}
+#endif
 
 static const struct mfd_cell sprd_pmic_devs[] = {
 	{
@@ -213,6 +259,7 @@ static int sprd_pmic_probe(struct spi_device *spi)
 	}
 
 	spi_set_drvdata(spi, ddata);
+	ddata->dev = &spi->dev;
 	ddata->irq = spi->irq;
 
 	ddata->irq_chip.name = dev_name(&spi->dev);
@@ -223,6 +270,8 @@ static int sprd_pmic_probe(struct spi_device *spi)
 	ddata->irq_chip.num_regs = 1;
 	ddata->irq_chip.num_irqs = pdata->num_irqs;
 	ddata->irq_chip.mask_invert = true;
+
+
 
 	ddata->irqs = devm_kzalloc(&spi->dev, sizeof(struct regmap_irq) *
 				   pdata->num_irqs, GFP_KERNEL);
@@ -236,12 +285,21 @@ static int sprd_pmic_probe(struct spi_device *spi)
 	}
 
 	ret = devm_regmap_add_irq_chip(&spi->dev, ddata->regmap, ddata->irq,
-				       IRQF_ONESHOT, 0,
+				       IRQF_ONESHOT | IRQF_SHARED, 0,
 				       &ddata->irq_chip, &ddata->irq_data);
 	if (ret) {
 		dev_err(&spi->dev, "Failed to add PMIC irq chip %d\n", ret);
 		return ret;
 	}
+
+#ifdef CONFIG_MITOCHODRIA_PMIC_IRQ_SNOOP
+	ret = devm_request_threaded_irq(&spi->dev, ddata->irq, NULL,
+					mitochodria_pmic_irq_snoop,
+					IRQF_ONESHOT | IRQF_SHARED,
+					dev_name(&spi->dev), ddata);
+	if (ret)
+		dev_warn(&spi->dev, "pmic irq snoop not registered %d\n", ret);
+#endif
 
 	ret = devm_mfd_add_devices(&spi->dev, PLATFORM_DEVID_NONE,
 				   sprd_pmic_devs, ARRAY_SIZE(sprd_pmic_devs),

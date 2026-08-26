@@ -1069,6 +1069,14 @@ config MFD_SMSC
         To compile this driver as a module, choose M here: the
         module will be called smsc.
 
+config MITOCHODRIA_PMIC_IRQ_SNOOP
+	bool "Mitochodria SC27xx PMIC sub-interrupt snoop"
+	default n
+	help
+	  Print the SC27xx raw/masked/enabled interrupt banks on every PMIC
+	  interrupt assertion. Diagnostic for identifying which PMIC source
+	  asserts INT_APCPU_ANA during AP deep sleep.
+
 config MFD_SC27XX_PMIC
 	tristate "Spreadtrum SC27xx PMICs"
 	depends on ARCH_SPRD || COMPILE_TEST
