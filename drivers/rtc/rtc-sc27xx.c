@@ -852,6 +852,61 @@ static int sprd_rtc_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+#ifdef CONFIG_MITOCHODRIA_PMIC_IRQ_SNOOP
+	/*
+	 * Mitochodria aux-alarm self-test: program an alarm 47 s out, wait
+	 * for the write handshake, then read all four latched fields back.
+	 * If they match the request, the comparator is full-tuple accurate
+	 * and timed wake alarms can be fixed properly; if seconds-only
+	 * latches, the comparator really is seconds-granular and the
+	 * never-arm policy is the only option.
+	 */
+	{
+		time64_t now = 0, target;
+		unsigned int en_save = 0, raw, v;
+		int i;
+
+		sprd_rtc_get_secs(rtc, SPRD_RTC_TIME, &now);
+		target = now + 47;
+
+		regmap_read(rtc->regmap, rtc->base + SPRD_RTC_INT_EN, &en_save);
+		regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
+			     SPRD_RTC_AUXALM_EN);
+		sprd_rtc_set_secs(rtc, SPRD_RTC_AUX_ALARM, target);
+
+		for (i = 0; i < 150; i++) {
+			msleep(10);
+			regmap_read(rtc->regmap,
+				    rtc->base + SPRD_RTC_INT_RAW_STS, &raw);
+			if (raw & SPRD_RTC_AUXALM_EN)
+				break;
+		}
+		dev_warn(&pdev->dev,
+			 "rtc aux selftest: handshake %s after %d ms\n",
+			 (i < 150) ? "completed" : "timeout", (i + 1) * 10);
+
+		dev_warn(&pdev->dev,
+			 "rtc aux selftest: target=%lld (sec=%lld min=%lld hour=%lld day=%lld)\n",
+			 target, target % 60, (target / 60) % 60,
+			 (target / 3600) % 24, target / 86400);
+		regmap_read(rtc->regmap, rtc->base + 0x60, &v);
+		dev_warn(&pdev->dev, "rtc aux selftest: latched sec=%u\n", v);
+		regmap_read(rtc->regmap, rtc->base + 0x64, &v);
+		dev_warn(&pdev->dev, "rtc aux selftest: latched min=%u\n", v);
+		regmap_read(rtc->regmap, rtc->base + 0x68, &v);
+		dev_warn(&pdev->dev, "rtc aux selftest: latched hour=%u\n", v);
+		regmap_read(rtc->regmap, rtc->base + 0x6c, &v);
+		dev_warn(&pdev->dev, "rtc aux selftest: latched day=%u\n", v);
+
+		regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
+			     SPRD_RTC_AUXALM_EN);
+		regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
+				   SPRD_RTC_ALARM_EN | SPRD_RTC_AUXALM_EN,
+				   en_save & (SPRD_RTC_ALARM_EN |
+					      SPRD_RTC_AUXALM_EN));
+	}
+#endif
+
 #ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
 	if (!rtc->valid) {
 		ret = sprd_rtc_init_baseline(rtc);
