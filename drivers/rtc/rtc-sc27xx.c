@@ -384,8 +384,14 @@ static int sprd_rtc_set_aux_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	 */
 	{
 		int i;
+		bool cleared = false;
 
-		for (i = 0; i < 25; i++) {
+		/*
+		 * Observed handshake completions arrive between ~0.2 s and
+		 * ~0.9 s after programming depending on power state; cover
+		 * them all so no completion status survives into sleep.
+		 */
+		for (i = 0; i < 100 && !cleared; i++) {
 			unsigned int raw = 0;
 
 			msleep(20);
@@ -395,9 +401,13 @@ static int sprd_rtc_set_aux_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 				regmap_write(rtc->regmap,
 					     rtc->base + SPRD_RTC_INT_CLR,
 					     SPRD_RTC_AUXALM_EN);
-				break;
+				cleared = true;
+				pr_info("mitochodria-rtc: cleared aux handshake after %d ms\n",
+					(i + 1) * 20);
 			}
 		}
+		if (!cleared)
+			pr_info("mitochodria-rtc: no aux handshake within 2000 ms\n");
 	}
 #endif
 
