@@ -669,52 +669,6 @@ static const struct rtc_class_ops sprd_rtc_ops = {
 	.alarm_irq_enable = sprd_rtc_alarm_irq_enable,
 };
 
-#ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
-/*
- * Mitochodria deep-sleep wake fix: SC2730 raises RTC-block interrupts for
- * asynchronous register-write handshakes (aux-alarm and SPG updates,
- * observed 0.2 s - 2 s after alarmtimer programs a wake alarm), and those
- * completions land after the AP cores are already down, waking deep sleep
- * every time. Mask the whole RTC block across suspension: no RTC source
- * can assert during deep sleep, and the enable state is restored on
- * resume. Timed RTC wakes are therefore not delivered while suspended.
- */
-static int sprd_rtc_suspend(struct device *dev)
-{
-	struct sprd_rtc *rtc = dev_get_drvdata(dev);
-	int ret;
-
-	ret = regmap_read(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
-			  &rtc->saved_int_en);
-	pr_info("rtc suspend: saved en=%#x (read ret=%d)\n",
-		rtc->saved_int_en, ret);
-	if (ret)
-		return ret;
-
-	regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
-		     SPRD_RTC_INT_MASK);
-	ret = regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
-				 SPRD_RTC_INT_MASK, 0);
-	pr_info("rtc suspend: masked all sources (ret=%d)\n", ret);
-	return ret;
-}
-
-static int sprd_rtc_resume(struct device *dev)
-{
-	struct sprd_rtc *rtc = dev_get_drvdata(dev);
-
-	regmap_write(rtc->regmap, rtc->base + SPRD_RTC_INT_CLR,
-		     SPRD_RTC_INT_MASK);
-	/*
-	 * Mitochodria: never restore the auxiliary alarm enable bit; the
-	 * aux comparator matches the seconds field alone.
-	 */
-	return regmap_update_bits(rtc->regmap, rtc->base + SPRD_RTC_INT_EN,
-				  SPRD_RTC_INT_MASK,
-				  rtc->saved_int_en & ~SPRD_RTC_AUXALM_EN);
-}
-#endif
-
 static irqreturn_t sprd_rtc_handler(int irq, void *dev_id)
 {
 	struct sprd_rtc *rtc = dev_id;
@@ -975,21 +929,10 @@ static const struct of_device_id sprd_rtc_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, sprd_rtc_of_match);
 
-#ifdef CONFIG_MITOCHODRIA_RTC_FIX_BASELINE
-static const struct dev_pm_ops sprd_rtc_pm_ops = {
-	.suspend = sprd_rtc_suspend,
-	.resume = sprd_rtc_resume,
-};
-#define SPRD_RTC_PM_OPS	(&sprd_rtc_pm_ops)
-#else
-#define SPRD_RTC_PM_OPS	NULL
-#endif
-
 static struct platform_driver sprd_rtc_driver = {
 	.driver = {
 		.name = "sprd-rtc",
 		.of_match_table = sprd_rtc_of_match,
-		.pm = SPRD_RTC_PM_OPS,
 	},
 	.probe	= sprd_rtc_probe,
 	.remove = sprd_rtc_remove,
