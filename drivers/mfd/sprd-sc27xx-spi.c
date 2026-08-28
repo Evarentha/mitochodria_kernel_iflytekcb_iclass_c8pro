@@ -50,6 +50,10 @@ struct sprd_pmic_data {
  * base address and irq number, we should save irq number and irq base
  * in the device data structure.
  */
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
 static const struct sprd_pmic_data sc2731_data = {
 	.irq_base = SPRD_SC2731_IRQ_BASE,
 	.num_irqs = SPRD_SC2731_IRQ_NUMS,
@@ -70,6 +74,11 @@ static const struct sprd_pmic_data sc2720_data = {
 	.num_irqs = SPRD_SC2720_IRQ_NUMS,
 };
 
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> main
 static const struct mfd_cell sprd_pmic_devs[] = {
 	{
 		.name = "sc27xx-wdt",
@@ -224,6 +233,11 @@ static int sprd_pmic_probe(struct spi_device *spi)
 	ddata->irq_chip.num_irqs = pdata->num_irqs;
 	ddata->irq_chip.mask_invert = true;
 
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> main
 	ddata->irqs = devm_kzalloc(&spi->dev, sizeof(struct regmap_irq) *
 				   pdata->num_irqs, GFP_KERNEL);
 	if (!ddata->irqs)
@@ -243,6 +257,11 @@ static int sprd_pmic_probe(struct spi_device *spi)
 		return ret;
 	}
 
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> main
 	ret = devm_mfd_add_devices(&spi->dev, PLATFORM_DEVID_NONE,
 				   sprd_pmic_devs, ARRAY_SIZE(sprd_pmic_devs),
 				   NULL, 0,

@@ -1174,6 +1174,58 @@ config RTC_DRV_WM8350
 	  This driver can also be built as a module. If so, the module
 	  will be called "rtc-wm8350".
 
+<<<<<<< HEAD
+=======
+config MITOCHODRIA_RTC_WAKE_MIN_LEAD_S
+	int "Mitochodria: drop SC27xx wake alarms due within this many seconds"
+	depends on MITOCHODRIA_RTC_SKIP_PAST_ALARM
+	default 30
+	help
+	  Wake alarms due within this horizon are not armed into the
+	  hardware; they fire late, on the next natural wake (key, charger,
+	  lid). Prevents frequent short-horizon boottime heartbeats from
+	  waking the AP (standby drain) and any user-space screen-on that
+	  follows. 0 disables the horizon (only past-due alarms are skipped).
+
+config MITOCHODRIA_RTC_MAIN_WAKE
+	bool "Mitochodria: deliver wake events via the polled normal alarm"
+	depends on MITOCHODRIA_RTC_NO_AUX_HW_WAKE
+	default n
+	help
+	  The normal SC27xx alarm honours the full time tuple and never
+	  showed the seconds-only comparator behaviour of the auxiliary
+	  alarm. Route boottime wake events through it instead of dropping
+	  them, so timed wakes are delivered precisely while deep sleep
+	  stays clean.
+
+config MITOCHODRIA_RTC_NO_AUX_HW_WAKE
+	bool "Mitochodria: never arm the SC27xx auxiliary wake alarm"
+	default n
+	help
+	  The SC2730 auxiliary alarm comparator matches the seconds field
+	  alone, so an armed aux wake alarm fires within at most one minute
+	  regardless of the requested time. Enable to keep boottime wake
+	  events software-only: they are delivered on the next natural wake
+	  instead of breaking deep sleep.
+
+config MITOCHODRIA_RTC_SKIP_PAST_ALARM
+	bool "Mitochodria: skip arming SC27xx RTC alarms already in the past"
+	default n
+	help
+	  With a reset or corrupted RTC baseline, alarmtimer requests can map
+	  to absolute times that are already past; arming them wakes the AP
+	  right after suspend entry. Enable to leave hardware alarms disabled
+	  for such requests.
+
+config MITOCHODRIA_RTC_FIX_BASELINE
+	bool "Mitochodria: seed SC27xx RTC baseline when invalid at probe"
+	default n
+	help
+	  A full power cycle clears the SC2730 time-valid flag while the
+	  counter restarts near zero; alarm mappings then land seconds away
+	  from suspend entry. Seed the counter with a modern epoch instead.
+
+>>>>>>> main
 config RTC_DRV_SC27XX
 	tristate "Spreadtrum SC27xx RTC"
 	depends on MFD_SC27XX_PMIC || COMPILE_TEST

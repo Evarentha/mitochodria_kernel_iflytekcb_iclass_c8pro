@@ -112,6 +112,7 @@ config USB_GADGET_VBUS_DRAW
 	   This value will be used except for system-specific gadget
 	   drivers that have more specific information.
 
+<<<<<<< HEAD
 config USB_DEBUG_UART
 	bool "Kernel USB debug UART with panic transmit"
 	depends on USB_GADGET=y && USB_DWC3=y && TTY
@@ -130,6 +131,8 @@ config USB_DEBUG_UART
 
 	  This is intended for kernel debugging only. Say N for production.
 
+=======
+>>>>>>> main
 config USB_GADGET_STORAGE_NUM_BUFFERS
 	int "Number of storage pipeline buffers"
 	range 2 256

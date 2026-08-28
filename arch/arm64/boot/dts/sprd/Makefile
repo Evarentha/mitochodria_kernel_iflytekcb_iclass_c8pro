@@ -3,7 +3,9 @@ dtb-$(CONFIG_ARCH_SPRD) += sc9836-openphone.dtb \
 			   sp9860g-1h10.dtb	\
 			   sl8541e-1h10.dtb	\
 			   sp9863a-1h10.dtb	\
+			   sp9863a-1c10.dtb	\
 			   sp9863a-2h10.dtb	\
+			   sp9863a-3c10.dtb	\
 			   ud710-haps.dtb	\
 			   ud710-3h10.dtb	\
 			   ud710-3h10u.dtb	\
@@ -17,6 +19,8 @@ dtb-$(CONFIG_ARCH_SPRD) += sc9836-openphone.dtb \
 			   ud710-20c11.dtb	\
 			   ud710-2h10u.dtb	\
 			   ud710-9h10u.dtb	\
+			   ud710-2c10.dtb	\
+			   ud710-20c10.dtb	\
 			   udx710-1h10.dtb 	\
 			   udx710-10h10.dtb 	\
 			   udx710-2c11.dtb 	\
@@ -33,9 +37,11 @@ dtb-$(CONFIG_ARCH_SPRD) += sc9836-openphone.dtb \
 			   ums312-haps.dtb	\
 			   ums312-1h10.dtb	\
                            ums312-2h10.dtb      \
+			   ums312-20c10.dtb	\
 			   ums312-3h10-4pro.dtb      \
 			   ums512-1h10.dtb	\
 			   ums512-2h10.dtb	\
+			   ums512-20c10.dtb	\
 			   ums512-1h10-p.dtb	\
 			   ums518-haps.dtb	\
 			   ums518-haps-bkd.dtb  \
@@ -44,12 +50,15 @@ dtb-$(CONFIG_ARCH_SPRD) += sc9836-openphone.dtb \
 
 dtbo-$(CONFIG_ARCH_SPRD) += \
 	sp9863a-1h10-overlay.dtbo \
+	sp9863a-1c10-overlay.dtbo \
 	sp9863a-2h10-overlay.dtbo \
+	sp9863a-3c10-overlay.dtbo \
 	sl8541e-1h10-overlay.dtbo \
 	ums518-zebu-overlay.dtbo \
 	ums312-haps-overlay.dtbo \
 	ums312-1h10-overlay.dtbo \
         ums312-2h10-overlay.dtbo \
+	ums312-20c10-overlay.dtbo \
 	ums312-haps-overlay.dtbo \
         ums312-3h10-4pro-overlay.dtbo \
 	ud710-haps-overlay.dtbo \
@@ -65,6 +74,8 @@ dtbo-$(CONFIG_ARCH_SPRD) += \
 	ud710-20c11-overlay.dtbo \
 	ud710-2h10u-overlay.dtbo \
 	ud710-9h10u-overlay.dtbo \
+	ud710-2c10-overlay.dtbo \
+	ud710-20c10-overlay.dtbo \
 	ums518-haps-overlay.dtbo \
 	ums518-haps-bkd-overlay.dtbo \
 	ums7520-haps-native-overlay.dtbo \

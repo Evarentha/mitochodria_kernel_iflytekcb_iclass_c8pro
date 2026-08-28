@@ -7,4 +7,7 @@
 dtb-$(CONFIG_ARCH_SPRD) += iclass-c8pro.dtb
 dtbo-$(CONFIG_ARCH_SPRD) += iclass-c8pro-overlay.dtbo
 
+dtb-$(CONFIG_ARCH_SPRD) += istudy-c10.dtb
+dtbo-$(CONFIG_ARCH_SPRD) += istudy-c10-overlay.dtbo
+
 always := $(dtb-y) $(dtbo-y)
