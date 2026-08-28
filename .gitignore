@@ -9,3 +9,4 @@ verity_dev_keys.x509
 sprd-board-config/
 build.config.cuttlefish.*
 build.config.goldfish.*
+node_modules
