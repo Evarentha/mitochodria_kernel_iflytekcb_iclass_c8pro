@@ -226,7 +226,14 @@ jobs:
         )
 
         make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} "${LLVM_MAKE_ARGS[@]}" ${{ env.KERNEL_CONFIG }}
-        make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} "${LLVM_MAKE_ARGS[@]}"
+        make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} "${LLVM_MAKE_ARGS[@]}" all dtbs
+
+    - name: Check DTB outputs
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace
+        test -f android-kernel/out/arch/${{ env.ARCH }}/boot/dts/iflytek/iclass-c8pro.dtb && \
+          echo "DTB_CHECK_IS_OK=true" >> $GITHUB_ENV
+        ls -la android-kernel/out/arch/${{ env.ARCH }}/boot/dts/iflytek/
 
 
     - name: Check a kernel output files
@@ -282,6 +289,20 @@ jobs:
             exit 1
         fi
     
+    - name: Pack all artifacts
+      if: env.CHECK_FILE_IS_OK == 'true'
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace
+        tar -czf all.tar.gz -C android-kernel/out .
+        ls -la all.tar.gz
+
+    - name: Upload all artifacts
+      if: env.CHECK_FILE_IS_OK == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: all-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
+        path: kernel_workspace/all.tar.gz
+
     - name: Upload ${{ env.KERNEL_IMAGE_NAME }}
       if: env.CHECK_FILE_IS_OK == 'true'
       uses: actions/upload-artifact@v4
