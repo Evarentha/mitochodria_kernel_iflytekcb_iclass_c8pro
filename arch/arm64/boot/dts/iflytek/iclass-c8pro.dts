@@ -5103,8 +5103,12 @@
 			phandle = <0x1de>;
 		};
 
-		pstore_reserved: pstore-mem@9f000000 {
+		pstore_reserved: ramoops@9f000000 {
+			compatible = "ramoops";
 			reg = <0x00 0x9f000000 0x00 0x40000>;
+			record-size = <0x8000>;
+			console-size = <0x8000>;
+			pmsg-size = <0x8000>;
 			phandle = <0x1df>;
 		};
 
@@ -7142,7 +7146,7 @@
 
 	chosen {
 		stdout-path = "/soc/ap-apb/serial@70100000";
-		bootargs = "earlycon=sprd_serial,0x70100000,115200n8 console=ttyS1,115200n8 loglevel=1 init=/init root=/dev/mmcblk0p30 rootfstype=ext4 ro rootwait androidboot.hardware=ud710_21c10 androidboot.dtbo_idx=0 printk.devkmsg=on pcie_ports=compat";
+		bootargs = "earlycon=sprd_serial,0x70100000,115200n8 console=ttyS1,115200n8 loglevel=1 no_console_suspend init=/init root=/dev/mmcblk0p30 rootfstype=ext4 ro rootwait androidboot.hardware=ud710_21c10 androidboot.dtbo_idx=0 printk.devkmsg=on pcie_ports=compat";
 	};
 
 	ipi: interrupt-controller {
