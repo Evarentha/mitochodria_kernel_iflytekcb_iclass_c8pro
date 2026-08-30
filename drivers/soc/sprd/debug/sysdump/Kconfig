@@ -10,3 +10,13 @@ config SPRD_MINI_SYSDUMP
                 This option enables Spreatrum mini sysdump which supplies simple
                 debug info for projects can not support external sd card after
                 system occurs kernel panics.
+
+config SPRD_SYSDUMP_PSTORE_COMPAT
+	bool "Skip sysdump_enter to allow pstore/ramoops capture"
+	depends on SPRD_SYSDUMP && PSTORE_RAM
+	default y
+	help
+	  When enabled, sysdump_enter() returns immediately in the panic()
+	  path so that the standard kmsg_dump -> pstore_dump flow runs.
+	  sysdump is still compiled and all its symbols remain available,
+	  but it does not hijack panic().
