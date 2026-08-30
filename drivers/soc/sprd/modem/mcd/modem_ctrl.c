@@ -35,7 +35,9 @@
 
 #include "../include/sprd_pcie_resource.h"
 
+#ifdef CONFIG_SPRD_SYSDUMP
 extern int sysdump_status;
+#endif
 
 enum {
 	ROC1_SOC = 0,
@@ -821,7 +823,10 @@ static void modem_ctrl_core_shutdown(void)
 			 * shutdown caused electricity leakage.
 			 */
 			if (g_mcd_reboot_event == SYS_POWER_OFF
-			    && sysdump_status)
+#ifdef CONFIG_SPRD_SYSDUMP
+			    && sysdump_status
+#endif
+			    )
 				panic("CP BLOCK!");
 		}
 	} else if (mcd_dev->soc_type == ORCA_SOC) {

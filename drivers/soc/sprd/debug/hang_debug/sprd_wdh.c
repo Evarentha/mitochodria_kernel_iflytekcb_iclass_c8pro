@@ -58,7 +58,9 @@ static unsigned char wdh_cpu_state[NR_CPUS];
 static raw_spinlock_t sprd_wdh_prlock;
 static raw_spinlock_t sprd_wdh_wclock;
 static atomic_t sprd_enter_wdh;
+#ifdef CONFIG_SPRD_SYSDUMP
 extern void sysdump_ipi(struct pt_regs *regs);
+#endif
 extern unsigned long gic_get_gicd_base(void);
 
 char sprd_log_buf[SPRD_PRINT_BUF_LEN];
@@ -589,7 +591,9 @@ asmlinkage __visible void wdh_atf_entry(struct pt_regs *data)
 
 	if (atomic_xchg(&sprd_enter_wdh, 1)) {
 		sprd_hang_debug_printf("%s: goto panic idle\n", __func__);
+#ifdef CONFIG_SPRD_SYSDUMP
 		sysdump_ipi(pregs);
+#endif
 		wdh_step[cpu] = SPRD_HANG_DUMP_SYSDUMP;
 		flush_cache_all();
 		while (1)
@@ -625,7 +629,9 @@ asmlinkage __visible void wdh_atf_entry(struct pt_regs *data)
 	wdh_step[cpu] = SPRD_HANG_DUMP_END;
 	print_step(cpu);
 
+#ifdef CONFIG_SPRD_SYSDUMP
 	sysdump_ipi(pregs);
+#endif
 
 	mdelay(50);
 
