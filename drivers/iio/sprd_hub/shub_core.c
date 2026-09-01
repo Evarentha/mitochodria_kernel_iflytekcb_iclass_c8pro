@@ -2381,6 +2381,7 @@ static int shub_probe(struct platform_device *pdev)
 {
 	struct shub_data *mcu;
 	struct iio_dev *indio_dev;
+	const char *iio_name = SHUB_NAME;
 	int error;
 
 	indio_dev = iio_device_alloc(sizeof(*mcu));
@@ -2389,7 +2390,12 @@ static int shub_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	indio_dev->name = SHUB_NAME;
+	/* The IIO device (and trigger) name must match the vendor sensor
+	 * HAL's drvName, which differs between HAL builds. Allow the
+	 * board DTS to override via "sprd,iio-name".
+	 */
+	of_property_read_string(pdev->dev.of_node, "sprd,iio-name", &iio_name);
+	indio_dev->name = iio_name;
 	indio_dev->dev.parent = &pdev->dev;
 	indio_dev->info = &shub_iio_info;
 	indio_dev->channels = shub_channels;

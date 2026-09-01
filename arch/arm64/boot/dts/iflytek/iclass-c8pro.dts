@@ -4802,6 +4802,7 @@
 
 	sprd-sensorhub {
 		compatible = "sprd,roc1-sensorhub";
+		sprd,iio-name = "SPRDSensor";
 	};
 
 	thm_zone: thermal-zones {
