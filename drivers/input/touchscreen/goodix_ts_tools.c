@@ -598,6 +598,9 @@ int goodix_tools_init(void)
 
 	return ret;
 }
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_GT738X_TX20
+module_init(goodix_tools_init);
+#endif
 
 void goodix_tools_exit(void)
 {

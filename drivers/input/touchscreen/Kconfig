@@ -1265,3 +1265,23 @@ config TOUCHSCREEN_GOODIX_GT738X_UPDATE
 config TOUCHSCREEN_GOODIX_GT738X_TOOLS
 	tristate "Goodix GT738x tools"
 	depends on TOUCHSCREEN_GOODIX_GT738X
+
+config TOUCHSCREEN_GOODIX_GT738X_TX20
+	bool "iFLYTEK TX20 GT7382 board integration"
+	depends on TOUCHSCREEN_GOODIX_GT738X
+	help
+	  Select the TX20 integration used by the iFLYTEK iStudy C10.  The
+	  controller is a GT7382 at I2C address 0x14 with a 1200x1920 touch
+	  coordinate range and board-specific firmware configuration.
+
+config TOUCHSCREEN_GOODIX_GT738X_CB3
+	bool "iFLYTEK CB3 GT738x board integration"
+	depends on TOUCHSCREEN_GOODIX_GT738X
+
+config TOUCHSCREEN_GOODIX_GT738X_MPP1V5
+	bool "GT738x MPP 1.5V integration"
+	depends on TOUCHSCREEN_GOODIX_GT738X
+	help
+	  Preserve the factory TX20 MPP 1.5V integration selection.  The
+	  electrical setup remains board-owned; this symbol distinguishes the
+	  factory C10 configuration from other GT738x products.

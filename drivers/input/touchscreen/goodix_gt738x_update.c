@@ -1509,6 +1509,9 @@ int goodix_fwu_module_init(void)
 	mutex_init(&goodix_fw_update_ctrl.mutex);
 	return goodix_register_ext_module(&goodix_fwu_module);
 }
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_GT738X_TX20
+module_init(goodix_fwu_module_init);
+#endif
 
 void goodix_fwu_module_exit(void)
 {

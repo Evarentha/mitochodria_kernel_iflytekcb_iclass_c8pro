@@ -1703,49 +1703,45 @@ void goodix_ts_dev_release(void)
 
 static int __init goodix_i2c_init(void)
 {
+	int ret;
 
-    int ret;
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_GT738X_TX20
+	ts_info("tx20 gt7382 i2c driver add");
+#endif
+	ret = i2c_add_driver(&goodix_i2c_driver);
+	if (ret < 0) {
+		ts_err("Goodix driver init failed with: %d\n", ret);
+		return ret;
+	}
 
-    ret = i2c_add_driver(&goodix_i2c_driver);
-    if (ret < 0)
-    {
-        ts_err("Goodix driver init failed with: %d\n", ret);
-        return ret;
-    }
-    
-
+#ifndef CONFIG_TOUCHSCREEN_GOODIX_GT738X_TX20
 #if defined(CONFIG_TOUCHSCREEN_GOODIX_GT738X_UPDATE)
-
-    ret = goodix_fwu_module_init();
-    if (ret < 0)
-    {
-        ts_err("Goodix upgrade modules init failed with: %d\n", ret);
-        return ret;
-    }
+	ret = goodix_fwu_module_init();
+	if (ret < 0) {
+		ts_err("Goodix upgrade modules init failed with: %d\n", ret);
+		return ret;
+	}
 #endif
 
 #if defined(CONFIG_TOUCHSCREEN_GOODIX_GT738X_GESTURE)
-    ret = goodix_gsx_gesture_init();
-    if (ret < 0)
-    {
-        ts_err("Goodix gesture modules init failed with: %d\n", ret);
-        return ret;
-    }
+	ret = goodix_gsx_gesture_init();
+	if (ret < 0) {
+		ts_err("Goodix gesture modules init failed with: %d\n", ret);
+		return ret;
+	}
 #endif
 
 #if defined(CONFIG_TOUCHSCREEN_GOODIX_GT738X_TOOLS)
-    ret = goodix_tools_init();
-    if (ret < 0)
-    {
-        ts_err("Goodix tools modules init failed with: %d\n", ret);
-        return ret;
-    }
+	ret = goodix_tools_init();
+	if (ret < 0) {
+		ts_err("Goodix tools modules init failed with: %d\n", ret);
+		return ret;
+	}
 #endif
-    ts_info("goodix modules init success\n"); 
-    return 0;
-    
-    
+	ts_info("goodix modules init success\n");
+#endif
 
+	return 0;
 }
 
 static void __exit goodix_i2c_exit(void)
